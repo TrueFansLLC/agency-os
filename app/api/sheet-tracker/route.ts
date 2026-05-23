@@ -42,7 +42,7 @@ function parseCSV(text: string): { headers: string[]; rows: Record<string, strin
 
 export async function GET() {
   try {
-    const res = await fetch(CSV_URL, { redirect: "follow", next: { revalidate: 60 } })
+    const res = await fetch(`${CSV_URL}&t=${Date.now()}`, { redirect: "follow", cache: "no-store" })
 
     if (!res.ok) {
       return NextResponse.json(
@@ -62,10 +62,10 @@ export async function GET() {
 
     const { headers, rows } = parseCSV(text)
 
-    // Drop placeholder/template rows that have no meaningful content
-    const KEY_COLS = ["Creator", "Plattform", "CheckStatus", "JaNeinStatus"]
+    // Keep rows that have at least a Creator OR a Platform — drop pure template placeholders
     const meaningful = rows.filter(row =>
-      KEY_COLS.some(col => row[col] && row[col].trim() !== "")
+      (row.Creator && row.Creator.trim() !== "") ||
+      (row.Plattform && row.Plattform.trim() !== "")
     )
 
     return NextResponse.json({ headers, rows: meaningful, lastSynced: new Date().toISOString() })
