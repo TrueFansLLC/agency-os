@@ -7,7 +7,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const supabase = createServerClient()
 
   const { data, error } = await supabase
-    .from("creator_accounts")
+    .from("account_pairs")
     .update(body)
     .eq("id", id)
     .select()
@@ -22,7 +22,7 @@ export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id:
   const supabase = createServerClient()
 
   const { error } = await supabase
-    .from("creator_accounts")
+    .from("account_pairs")
     .delete()
     .eq("id", id)
 
