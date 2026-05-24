@@ -12,8 +12,7 @@ import {
 // ─── Date range resolution ────────────────────────────────────────
 
 export function resolveDateRange(filters: Filters): { from: string; to: string } {
-  // In production replace this with: const today = new Date()
-  const today = new Date("2026-05-03")
+  const today = new Date()
   const pad = (d: Date) => d.toISOString().split("T")[0]
 
   if (filters.dateRange === "7d") {
@@ -60,7 +59,9 @@ export function computeMetrics(
   const lastPostSnap = [...account.snapshots].reverse().find(s => s.posts > 0)
   const lastPostDate = lastPostSnap ? formatRelativeDate(lastPostSnap.date) : "—"
 
-  return { followersNow, followerGrowth, views, posts, avgViewsPerPost, lastPostDate }
+  const fbFollowersNow = [...account.snapshots].reverse().find(s => (s.fbFollowers ?? 0) > 0)?.fbFollowers ?? 0
+
+  return { followersNow, followerGrowth, fbFollowersNow, views, posts, avgViewsPerPost, lastPostDate }
 }
 
 // ─── Filtering + bulk computation ────────────────────────────────
@@ -116,7 +117,7 @@ export function fmtGrowth(n: number): string {
 }
 
 function formatRelativeDate(dateStr: string): string {
-  const ref = new Date("2026-05-03") // replace with new Date() in production
+  const ref = new Date()
   const d = new Date(dateStr)
   const diff = Math.floor((ref.getTime() - d.getTime()) / 86_400_000)
   if (diff === 0) return "Today"

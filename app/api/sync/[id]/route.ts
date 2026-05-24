@@ -13,10 +13,9 @@ export async function POST(
   const { id } = await params
   const startedAt = new Date().toISOString()
 
-  // Load the account
   const { data: account, error: accErr } = await supabase
     .from("instagram_accounts")
-    .select("id, username, external_instagram_id")
+    .select("id, username, external_instagram_id, fb_username")
     .eq("id", id)
     .single()
 
@@ -28,6 +27,7 @@ export async function POST(
   const apiKey = process.env.SCRAPECREATORS_API_KEY!
 
   let igData: { followers: number; posts: number; views: number; externalId?: string } | null = null
+  let fbFollowers = 0
   let fetchError: string | null = null
 
   try {
@@ -72,6 +72,22 @@ export async function POST(
       : String(err)
   }
 
+  // Optionally sync Facebook
+  if (!fetchError && account.fb_username) {
+    try {
+      const fbRes = await fetch(
+        `https://api.scrapecreators.com/v1/facebook/profile?url=${encodeURIComponent(account.fb_username)}`,
+        { headers: { "x-api-key": apiKey }, cache: "no-store" }
+      )
+      if (fbRes.ok) {
+        const fbJson = await fbRes.json()
+        fbFollowers = fbJson?.data?.followerCount ?? fbJson?.data?.likeCount ?? 0
+      }
+    } catch {
+      // Facebook sync failure is non-fatal — Instagram data is still saved
+    }
+  }
+
   if (fetchError || !igData) {
     await supabase.from("sync_logs").insert({
       account_id:    id,
@@ -90,11 +106,12 @@ export async function POST(
     .from("instagram_metric_snapshots")
     .upsert(
       {
-        account_id: id,
-        date:       today,
-        followers:  igData.followers,
-        views:      igData.views,
-        posts:      igData.posts,
+        account_id:   id,
+        date:         today,
+        followers:    igData.followers,
+        views:        igData.views,
+        posts:        igData.posts,
+        fb_followers: fbFollowers,
       },
       { onConflict: "account_id,date" }
     )

@@ -10,10 +10,11 @@ export type DataSource       = "instagram_api" | "manual"
 // One snapshot = one day of recorded metrics pulled from the Instagram API.
 // In production this row is written by a background sync job.
 export interface DailySnapshot {
-  date: string       // ISO: "2026-04-01"
-  followers: number  // total follower count at end of day
-  views: number      // total reel/post views that day
-  posts: number      // number of posts published that day
+  date: string
+  followers: number
+  views: number
+  posts: number
+  fbFollowers?: number
 }
 
 export interface Creator {
@@ -33,11 +34,10 @@ export interface InstagramAccount {
   // ── Instagram API fields ─────────────────────────────────────────
   // These are populated automatically once the account is connected.
   // Manually added accounts leave them undefined until first sync.
-  externalInstagramId?: string  // the numeric IG account ID from the API
-  lastSyncedAt?: string         // ISO datetime of last successful API sync
-  // ── Metric history ───────────────────────────────────────────────
-  snapshots: DailySnapshot[]    // populated by API sync; empty until connected
-  // ── Meta ─────────────────────────────────────────────────────────
+  externalInstagramId?: string
+  lastSyncedAt?: string
+  fbUsername?: string
+  snapshots: DailySnapshot[]
   notes: string
   performanceLabel: PerformanceLabel
   archived: boolean             // soft delete — excluded from main view
@@ -62,6 +62,7 @@ export interface Filters {
 export interface ComputedMetrics {
   followersNow: number
   followerGrowth: number
+  fbFollowersNow: number
   views: number
   posts: number
   avgViewsPerPost: number

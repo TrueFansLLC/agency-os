@@ -29,11 +29,12 @@ export default function SocialPage() {
   const [marketList,  setMarketList]  = useState<string[]>(["Germany", "USA"])
   const [isLoading,   setIsLoading]   = useState(true)
   const [syncingId,   setSyncingId]   = useState<string | null>(null)
+  const [syncingAll,  setSyncingAll]  = useState(false)
+  const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null)
 
   const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
   const [modal,   setModal]   = useState<ModalState>({ open: false })
 
-  // ── Load all data from Supabase via API routes ─────────────────
   const loadData = useCallback(async () => {
     try {
       const [accRes, creatRes, mktRes] = await Promise.all([
@@ -56,7 +57,12 @@ export default function SocialPage() {
     }
   }, [])
 
-  useEffect(() => { loadData() }, [loadData])
+  // Auto-import from Account Tracker on every page load, then fetch
+  useEffect(() => {
+    fetch("/api/accounts/import", { method: "POST" })
+      .then(() => loadData())
+      .catch(() => loadData())
+  }, [loadData])
 
   // ── Derived values ─────────────────────────────────────────────
   const filtered    = useMemo(() => filterAndCompute(accountList, filters), [accountList, filters])
@@ -121,11 +127,29 @@ export default function SocialPage() {
         alert(`Sync failed: ${error}`)
       }
       await loadData()
-    } catch (err) {
+    } catch {
       alert("Sync failed — check your connection.")
     } finally {
       setSyncingId(null)
     }
+  }
+
+  async function handleSyncAll() {
+    const ids = accountList.filter(a => !a.archived).map(a => a.id)
+    if (!ids.length) return
+    setSyncingAll(true)
+    setSyncProgress({ done: 0, total: ids.length })
+    for (let i = 0; i < ids.length; i++) {
+      try {
+        await fetch(`/api/sync/${ids[i]}`, { method: "POST" })
+      } catch {
+        // continue syncing others even if one fails
+      }
+      setSyncProgress({ done: i + 1, total: ids.length })
+    }
+    await loadData()
+    setSyncingAll(false)
+    setSyncProgress(null)
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -138,15 +162,31 @@ export default function SocialPage() {
             Instagram performance across all creators and markets.
           </p>
         </div>
-        <button
-          onClick={() => setModal({ open: true, mode: "add" })}
-          className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-          </svg>
-          Add Account
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={handleSyncAll}
+            disabled={syncingAll || isLoading}
+            className="flex items-center gap-2 px-4 py-2 bg-gray-800 text-gray-200 text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed border border-gray-700"
+          >
+            <svg
+              width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+              className={syncingAll ? "animate-spin" : ""}
+            >
+              <polyline points="23 4 23 10 17 10"/>
+              <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10"/>
+            </svg>
+            {syncProgress ? `Syncing ${syncProgress.done}/${syncProgress.total}…` : "Sync All"}
+          </button>
+          <button
+            onClick={() => setModal({ open: true, mode: "add" })}
+            className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 text-sm font-semibold rounded-lg hover:bg-gray-200 transition-colors"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+              <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+            </svg>
+            Add Account
+          </button>
+        </div>
       </div>
 
       <FilterBar filters={filters} onChange={setFilters} creators={creatorList} markets={marketList} />

@@ -25,7 +25,7 @@ const CONN_DOT: Record<string, string> = {
 
 const COLS = [
   "Account", "Creator", "Market", "Status",
-  "Followers", "Growth", "Recent Views", "Posts",
+  "IG Followers", "FB Followers", "Growth", "Recent Views", "Posts",
   "Avg Views/Post", "Last Post", "Label / Notes", "",
 ]
 
@@ -128,9 +128,11 @@ export default function AccountTable({ accounts, hasAccounts, syncingId, onEdit,
                     </span>
                   </td>
 
-                  {/* Metric columns — all show "—" until API connected */}
                   <td className="px-4 py-3 text-gray-300 whitespace-nowrap tabular-nums">
                     {m.followersNow > 0 ? fmtNumber(m.followersNow) : "—"}
+                  </td>
+                  <td className="px-4 py-3 text-gray-300 whitespace-nowrap tabular-nums">
+                    {m.fbFollowersNow > 0 ? fmtNumber(m.fbFollowersNow) : a.fbUsername ? "—" : <span className="text-gray-600">·</span>}
                   </td>
                   <td className={`px-4 py-3 whitespace-nowrap font-medium tabular-nums ${growthPos ? "text-green-400" : "text-red-400"}`}>
                     {fmtGrowth(m.followerGrowth)}

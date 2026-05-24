@@ -26,18 +26,23 @@ export async function GET() {
 
   const { data: snapshots, error: snapErr } = await supabase
     .from("instagram_metric_snapshots")
-    .select("account_id, date, followers, views, posts")
+    .select("account_id, date, followers, views, posts, fb_followers")
     .in("account_id", accountIds)
     .gte("date", since.toISOString().split("T")[0])
     .order("date", { ascending: true })
 
   if (snapErr) return NextResponse.json({ error: snapErr.message }, { status: 500 })
 
-  // Group snapshots by account_id
   const snapMap = new Map<string, DailySnapshot[]>()
   for (const s of snapshots ?? []) {
     if (!snapMap.has(s.account_id)) snapMap.set(s.account_id, [])
-    snapMap.get(s.account_id)!.push({ date: s.date, followers: s.followers, views: s.views, posts: s.posts })
+    snapMap.get(s.account_id)!.push({
+      date: s.date,
+      followers: s.followers,
+      views: s.views,
+      posts: s.posts,
+      fbFollowers: s.fb_followers ?? 0,
+    })
   }
 
   const result: InstagramAccount[] = accounts.map(a => ({
@@ -51,6 +56,7 @@ export async function GET() {
     dataSource:           a.data_source,
     externalInstagramId:  a.external_instagram_id ?? undefined,
     lastSyncedAt:         a.last_synced_at ?? undefined,
+    fbUsername:           a.fb_username ?? undefined,
     performanceLabel:     a.performance_label,
     notes:                a.notes ?? "",
     archived:             a.archived,
