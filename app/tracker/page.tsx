@@ -6,7 +6,9 @@ type Pair = {
   id: string
   creator: string
   branding: string | null
-  mitarbeiter: string | null
+  content_creator: string | null
+  ig_mitarbeiter: string | null
+  fb_mitarbeiter: string | null
   ig_username: string | null
   ig_status: string
   ig_posting: boolean
@@ -20,7 +22,8 @@ type Pair = {
 }
 
 const EMPTY: Omit<Pair, "id" | "created_at"> = {
-  creator: "", branding: "", mitarbeiter: "",
+  creator: "", branding: "",
+  content_creator: "", ig_mitarbeiter: "", fb_mitarbeiter: "",
   ig_username: "", ig_status: "Fehlt", ig_posting: false, ig_link: "",
   fb_username: "", fb_status: "Fehlt", fb_posting: false, fb_link: "",
   notes: "",
@@ -77,13 +80,16 @@ function PairCard({ pair, onClick }: { pair: Pair; onClick: () => void }) {
       className={`w-full text-left bg-gray-900 border rounded-xl overflow-hidden hover:bg-gray-800/60 transition-colors ${hasIssue ? "border-red-900/60" : "border-gray-800"}`}
     >
       {/* Header */}
-      <div className="px-4 pt-4 pb-3 border-b border-gray-800 flex items-start justify-between gap-2">
-        <div>
+      <div className="px-4 pt-4 pb-3 border-b border-gray-800">
+        <div className="flex items-start justify-between gap-2 mb-2">
           <p className="text-white font-semibold text-sm leading-tight">{pair.creator}</p>
-          {pair.branding && <p className="text-gray-500 text-xs mt-0.5">{pair.branding}</p>}
+          {pair.branding && <span className="text-gray-500 text-xs shrink-0">{pair.branding}</span>}
         </div>
-        {pair.mitarbeiter && (
-          <span className="text-xs text-gray-600 shrink-0">{pair.mitarbeiter}</span>
+        {pair.content_creator && (
+          <div className="flex items-center gap-1.5">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="#6b7280" strokeWidth="2"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+            <span className="text-gray-500 text-xs">Content: {pair.content_creator}</span>
+          </div>
         )}
       </div>
 
@@ -102,6 +108,12 @@ function PairCard({ pair, onClick }: { pair: Pair; onClick: () => void }) {
           <Row label="Account" ok={pair.ig_status === "Fertig"} />
           <Row label="Posting" ok={pair.ig_posting} />
           <Row label="Link" ok={!!pair.ig_link} detail={pair.ig_link ?? undefined} />
+          {pair.ig_mitarbeiter && (
+            <div className="flex items-center gap-1 text-xs text-gray-600 pt-1">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              {pair.ig_mitarbeiter}
+            </div>
+          )}
         </div>
 
         {/* Facebook */}
@@ -116,6 +128,12 @@ function PairCard({ pair, onClick }: { pair: Pair; onClick: () => void }) {
           <Row label="Page" ok={pair.fb_status === "Fertig"} />
           <Row label="Posting" ok={pair.fb_posting} />
           <Row label="Link" ok={!!pair.fb_link} detail={pair.fb_link ?? undefined} />
+          {pair.fb_mitarbeiter && (
+            <div className="flex items-center gap-1 text-xs text-gray-600 pt-1">
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+              {pair.fb_mitarbeiter}
+            </div>
+          )}
         </div>
       </div>
     </button>
@@ -196,9 +214,17 @@ function Modal({ pair, creators, onClose, onSave, onDelete }: {
               <Input value={form.branding ?? ""} onChange={v => set("branding", v)} placeholder="e.g. Farmgirl" />
             </Field>
           </div>
-          <Field label="Employee">
-            <Input value={form.mitarbeiter ?? ""} onChange={v => set("mitarbeiter", v)} placeholder="e.g. Davide" />
+          <Field label="Content Creator (who makes the content)">
+            <Input value={form.content_creator ?? ""} onChange={v => set("content_creator", v)} placeholder="e.g. Romina" />
           </Field>
+          <div className="grid grid-cols-2 gap-4">
+            <Field label="Instagram Manager">
+              <Input value={form.ig_mitarbeiter ?? ""} onChange={v => set("ig_mitarbeiter", v)} placeholder="e.g. Davide" />
+            </Field>
+            <Field label="Facebook Manager">
+              <Input value={form.fb_mitarbeiter ?? ""} onChange={v => set("fb_mitarbeiter", v)} placeholder="e.g. Ilmije" />
+            </Field>
+          </div>
 
           {/* Divider */}
           <div className="border-t border-gray-800"/>
