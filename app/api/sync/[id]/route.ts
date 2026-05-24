@@ -1,17 +1,14 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 
-// ── POST /api/sync/[id] ───────────────────────────────────────────
-// Fetches fresh Instagram data for one account via ScrapeCreators,
-// writes a daily snapshot to Supabase, and logs the sync attempt.
-// The API key never leaves the server — it's read from env only here.
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = createServerClient()
   const { id } = await params
   const startedAt = new Date().toISOString()
+  const triggeredBy = request.headers.get("x-cron") === "1" ? "cron" : "manual"
 
   const { data: account, error: accErr } = await supabase
     .from("instagram_accounts")
@@ -23,44 +20,51 @@ export async function POST(
     return NextResponse.json({ error: "Account not found" }, { status: 404 })
   }
 
+  // Skip if already synced today (saves API credits)
+  const today = new Date().toISOString().split("T")[0]
+  if (triggeredBy === "cron" && account.last_synced_at?.startsWith(today)) {
+    return NextResponse.json({ ok: true, skipped: true })
+  }
+
   const handle = account.username.replace(/^@/, "")
-  const apiKey = process.env.SCRAPECREATORS_API_KEY!
+  const rapidApiKey = process.env.RAPIDAPI_KEY!
 
   let igData: { followers: number; posts: number; views: number; externalId?: string } | null = null
   let fbFollowers = 0
   let fetchError: string | null = null
 
   try {
-    // ScrapeCreators API — fetches public Instagram profile data
     const res = await fetch(
-      `https://api.scrapecreators.com/v1/instagram/profile?handle=${encodeURIComponent(handle)}`,
+      `https://instagram-scraper-api2.p.rapidapi.com/v1/info?username_or_id_or_url=${encodeURIComponent(handle)}`,
       {
-        headers: { "x-api-key": apiKey },
+        headers: {
+          "x-rapidapi-key":  rapidApiKey,
+          "x-rapidapi-host": "instagram-scraper-api2.p.rapidapi.com",
+        },
         cache: "no-store",
       }
     )
 
     if (!res.ok) {
-      fetchError = `ScrapeCreators returned ${res.status}: ${await res.text()}`
+      fetchError = `RapidAPI returned ${res.status}: ${await res.text()}`
     } else {
       const json = await res.json()
-      const user = json?.data?.user ?? json?.data ?? json
+      const user = json?.data ?? json
 
-      type PostNode = { view_count?: number; video_view_count?: number }
+      type PostNode = { view_count?: number; video_view_count?: number; play_count?: number }
       type Edge = { node?: PostNode }
 
       const timelineEdges: Edge[] = user?.edge_owner_to_timeline_media?.edges ?? []
       const felixEdges: Edge[]    = user?.edge_felix_video_timeline?.edges ?? []
 
       const viewsFromEdges = (edges: Edge[]) =>
-        edges.reduce((sum, e) => sum + (e.node?.view_count ?? e.node?.video_view_count ?? 0), 0)
+        edges.reduce((sum, e) => sum + (e.node?.play_count ?? e.node?.view_count ?? e.node?.video_view_count ?? 0), 0)
 
-      // Combine both feeds; felix edges are a separate reel/IGTV feed (no overlap with timeline)
       const totalViews = viewsFromEdges(timelineEdges) + viewsFromEdges(felixEdges)
 
       igData = {
-        followers:  user?.edge_followed_by?.count ?? 0,
-        posts:      user?.edge_owner_to_timeline_media?.count ?? 0,
+        followers:  user?.edge_followed_by?.count ?? user?.follower_count ?? 0,
+        posts:      user?.edge_owner_to_timeline_media?.count ?? user?.media_count ?? 0,
         views:      totalViews,
         externalId: user?.id?.toString() ?? account.external_instagram_id,
       }
@@ -72,19 +76,25 @@ export async function POST(
       : String(err)
   }
 
-  // Optionally sync Facebook
+  // Optionally sync Facebook (non-fatal if it fails)
   if (!fetchError && account.fb_username) {
     try {
       const fbRes = await fetch(
-        `https://api.scrapecreators.com/v1/facebook/profile?url=${encodeURIComponent(account.fb_username)}`,
-        { headers: { "x-api-key": apiKey }, cache: "no-store" }
+        `https://instagram-scraper-api2.p.rapidapi.com/v1/info?username_or_id_or_url=${encodeURIComponent(account.fb_username)}`,
+        {
+          headers: {
+            "x-rapidapi-key":  rapidApiKey,
+            "x-rapidapi-host": "instagram-scraper-api2.p.rapidapi.com",
+          },
+          cache: "no-store",
+        }
       )
       if (fbRes.ok) {
         const fbJson = await fbRes.json()
-        fbFollowers = fbJson?.data?.followerCount ?? fbJson?.data?.likeCount ?? 0
+        fbFollowers = fbJson?.data?.follower_count ?? fbJson?.data?.fan_count ?? 0
       }
     } catch {
-      // Facebook sync failure is non-fatal — Instagram data is still saved
+      // non-fatal
     }
   }
 
@@ -92,7 +102,7 @@ export async function POST(
     await supabase.from("sync_logs").insert({
       account_id:    id,
       status:        "error",
-      triggered_by:  "manual",
+      triggered_by:  triggeredBy,
       error_message: fetchError ?? "No data returned",
       started_at:    startedAt,
       completed_at:  new Date().toISOString(),
@@ -100,8 +110,6 @@ export async function POST(
     return NextResponse.json({ error: fetchError }, { status: 502 })
   }
 
-  // Upsert today's snapshot
-  const today = new Date().toISOString().split("T")[0]
   const { error: snapErr } = await supabase
     .from("instagram_metric_snapshots")
     .upsert(
@@ -120,7 +128,6 @@ export async function POST(
     return NextResponse.json({ error: snapErr.message }, { status: 500 })
   }
 
-  // Update account metadata
   await supabase
     .from("instagram_accounts")
     .update({
@@ -131,14 +138,13 @@ export async function POST(
     })
     .eq("id", id)
 
-  // Log success
   await supabase.from("sync_logs").insert({
-    account_id:       id,
-    status:           "success",
-    triggered_by:     "manual",
+    account_id:        id,
+    status:            "success",
+    triggered_by:      triggeredBy,
     snapshots_written: 1,
-    started_at:       startedAt,
-    completed_at:     new Date().toISOString(),
+    started_at:        startedAt,
+    completed_at:      new Date().toISOString(),
   })
 
   return NextResponse.json({
