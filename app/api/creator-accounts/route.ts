@@ -8,7 +8,7 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from("account_pairs")
     .select("*")
-    .eq("archived", archived)
+    .or(archived ? "archived.eq.true" : "archived.eq.false,archived.is.null")
     .order("creator")
     .order("branding")
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
