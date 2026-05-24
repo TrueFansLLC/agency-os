@@ -161,9 +161,10 @@ function Input({ value, onChange, placeholder }: { value: string; onChange: (v: 
   )
 }
 
-function Modal({ pair, creators, onClose, onSave, onDelete }: {
+function Modal({ pair, creators, employees, onClose, onSave, onDelete }: {
   pair: Pair | null
   creators: string[]
+  employees: string[]
   onClose: () => void
   onSave: (data: Omit<Pair, "id" | "created_at">) => Promise<void>
   onDelete?: () => Promise<void>
@@ -215,14 +216,23 @@ function Modal({ pair, creators, onClose, onSave, onDelete }: {
             </Field>
           </div>
           <Field label="Content Creator (who makes the content)">
-            <Input value={form.content_creator ?? ""} onChange={v => set("content_creator", v)} placeholder="e.g. Romina" />
+            <input list="emp-list-cc" value={form.content_creator ?? ""} onChange={e => set("content_creator", e.target.value)}
+              placeholder="e.g. Romina"
+              className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+            <datalist id="emp-list-cc">{employees.map(e => <option key={e} value={e}/>)}</datalist>
           </Field>
           <div className="grid grid-cols-2 gap-4">
             <Field label="Instagram Manager">
-              <Input value={form.ig_mitarbeiter ?? ""} onChange={v => set("ig_mitarbeiter", v)} placeholder="e.g. Davide" />
+              <input list="emp-list-ig" value={form.ig_mitarbeiter ?? ""} onChange={e => set("ig_mitarbeiter", e.target.value)}
+                placeholder="e.g. Davide"
+                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+              <datalist id="emp-list-ig">{employees.map(e => <option key={e} value={e}/>)}</datalist>
             </Field>
             <Field label="Facebook Manager">
-              <Input value={form.fb_mitarbeiter ?? ""} onChange={v => set("fb_mitarbeiter", v)} placeholder="e.g. Ilmije" />
+              <input list="emp-list-fb" value={form.fb_mitarbeiter ?? ""} onChange={e => set("fb_mitarbeiter", e.target.value)}
+                placeholder="e.g. Ilmije"
+                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+              <datalist id="emp-list-fb">{employees.map(e => <option key={e} value={e}/>)}</datalist>
             </Field>
           </div>
 
@@ -343,23 +353,37 @@ function Modal({ pair, creators, onClose, onSave, onDelete }: {
 
 // ── Main page ─────────────────────────────────────────────────
 export default function TrackerPage() {
-  const [pairs,   setPairs]   = useState<Pair[]>([])
-  const [loading, setLoading] = useState(true)
-  const [creator, setCreator] = useState("all")
-  const [modal,   setModal]   = useState<{ mode: "add" } | { mode: "edit"; pair: Pair } | null>(null)
+  const [pairs,     setPairs]     = useState<Pair[]>([])
+  const [employees, setEmployees] = useState<string[]>([])
+  const [loading,   setLoading]   = useState(true)
+  const [creator,   setCreator]   = useState("all")
+  const [empFilter, setEmpFilter] = useState("all")
+  const [brandFilter, setBrandFilter] = useState("all")
+  const [modal,     setModal]     = useState<{ mode: "add" } | { mode: "edit"; pair: Pair } | null>(null)
 
   async function load() {
     setLoading(true)
-    const res = await fetch("/api/creator-accounts")
-    const data = await res.json()
-    setPairs(Array.isArray(data) ? data : [])
+    const [pairRes, empRes] = await Promise.all([
+      fetch("/api/creator-accounts"),
+      fetch("/api/employees"),
+    ])
+    const [pairData, empData] = await Promise.all([pairRes.json(), empRes.json()])
+    setPairs(Array.isArray(pairData) ? pairData : [])
+    setEmployees(Array.isArray(empData) ? empData.map((e: { name: string }) => e.name) : [])
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
-  const creators = useMemo(() => [...new Set(pairs.map(p => p.creator))].sort(), [pairs])
-  const filtered = useMemo(() => creator === "all" ? pairs : pairs.filter(p => p.creator === creator), [pairs, creator])
+  const creators  = useMemo(() => [...new Set(pairs.map(p => p.creator))].sort(), [pairs])
+  const brandings = useMemo(() => [...new Set(pairs.map(p => p.branding).filter(Boolean))].sort() as string[], [pairs])
+
+  const filtered = useMemo(() => pairs.filter(p => {
+    if (creator !== "all" && p.creator !== creator) return false
+    if (empFilter !== "all" && p.ig_mitarbeiter !== empFilter && p.fb_mitarbeiter !== empFilter && p.content_creator !== empFilter) return false
+    if (brandFilter !== "all" && p.branding !== brandFilter) return false
+    return true
+  }), [pairs, creator, empFilter, brandFilter])
 
   const stats = useMemo(() => ({
     total:      pairs.length,
@@ -429,22 +453,50 @@ export default function TrackerPage() {
             </div>
           )}
 
-          {/* Creator tabs */}
-          {creators.length > 0 && (
-            <div className="flex flex-wrap gap-2 mb-8">
-              {["all", ...creators].map(c => (
-                <button key={c} onClick={() => setCreator(c)}
-                  className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    creator === c ? "bg-white text-gray-950" : "bg-gray-900 border border-gray-700 text-gray-400 hover:text-white hover:border-gray-500"
-                  }`}>
-                  {c !== "all" && (
-                    <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${creator === c ? "bg-gray-200 text-gray-900" : "bg-gray-700 text-gray-300"}`}>
-                      {c[0].toUpperCase()}
-                    </span>
-                  )}
-                  {c === "all" ? "All Creators" : c}
+          {/* Filters */}
+          {pairs.length > 0 && (
+            <div className="flex flex-wrap gap-3 mb-8 items-center">
+              {/* Creator tabs */}
+              <div className="flex flex-wrap gap-2">
+                {["all", ...creators].map(c => (
+                  <button key={c} onClick={() => setCreator(c)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                      creator === c ? "bg-white text-gray-950" : "bg-gray-900 border border-gray-700 text-gray-400 hover:text-white"
+                    }`}>
+                    {c !== "all" && (
+                      <span className={`w-4 h-4 rounded-full flex items-center justify-center text-xs font-bold ${creator === c ? "bg-gray-200 text-gray-900" : "bg-gray-700 text-gray-300"}`}>
+                        {c[0].toUpperCase()}
+                      </span>
+                    )}
+                    {c === "all" ? "All Creators" : c}
+                  </button>
+                ))}
+              </div>
+
+              {/* Employee filter */}
+              {employees.length > 0 && (
+                <select value={empFilter} onChange={e => setEmpFilter(e.target.value)}
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-gray-500">
+                  <option value="all">All Employees</option>
+                  {employees.map(e => <option key={e} value={e}>{e}</option>)}
+                </select>
+              )}
+
+              {/* Branding filter */}
+              {brandings.length > 0 && (
+                <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)}
+                  className="bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-gray-300 focus:outline-none focus:border-gray-500">
+                  <option value="all">All Brandings</option>
+                  {brandings.map(b => <option key={b} value={b}>{b}</option>)}
+                </select>
+              )}
+
+              {(creator !== "all" || empFilter !== "all" || brandFilter !== "all") && (
+                <button onClick={() => { setCreator("all"); setEmpFilter("all"); setBrandFilter("all") }}
+                  className="text-xs text-gray-500 hover:text-white transition-colors">
+                  Clear filters
                 </button>
-              ))}
+              )}
             </div>
           )}
 
@@ -472,6 +524,7 @@ export default function TrackerPage() {
         <Modal
           pair={modal.mode === "edit" ? modal.pair : null}
           creators={creators}
+          employees={employees}
           onClose={() => setModal(null)}
           onSave={handleSave}
           onDelete={modal.mode === "edit" ? handleDelete : undefined}
