@@ -8,11 +8,11 @@ export async function GET(request: NextRequest) {
   const { data, error } = await supabase
     .from("account_pairs")
     .select("*")
-    .or(archived ? "archived.eq.true" : "archived.eq.false,archived.is.null")
     .order("creator")
     .order("branding")
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data)
+  const filtered = (data || []).filter(r => archived ? r.archived === true : r.archived !== true)
+  return NextResponse.json(filtered)
 }
 
 export async function POST(request: NextRequest) {
