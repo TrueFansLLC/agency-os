@@ -14,7 +14,10 @@ export async function POST(request: NextRequest) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  const { error } = await supabase.auth.admin.inviteUserByEmail(email)
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://agency-os-q29n.vercel.app"
+  const { error } = await supabase.auth.admin.inviteUserByEmail(email, {
+    redirectTo: `${siteUrl}/auth/callback?next=/set-password`,
+  })
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 400 })
