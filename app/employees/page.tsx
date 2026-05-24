@@ -11,25 +11,38 @@ type Employee = {
 }
 
 type Pair = {
+  id: string
+  creator: string
+  branding: string | null
+  content_creator: string | null
   ig_mitarbeiter: string | null
   fb_mitarbeiter: string | null
-  content_creator: string | null
   ig_status: string
   fb_status: string
   ig_posting: boolean
   fb_posting: boolean
   ig_link: string | null
   fb_link: string | null
-  creator: string
-  branding: string | null
+  archived: boolean
+  archive_reason: string | null
+  archived_at: string | null
+  archived_by: string | null
 }
 
-const EMPTY = { name: "", devices: 0, notes: "" }
+const ARCHIVE_REASONS = [
+  "Wurde gebannt",
+  "Hat nicht funktioniert",
+  "Creator hat aufgehört",
+  "Wurde ersetzt",
+  "Anderer Grund",
+]
 
-function Modal({ employee, onClose, onSave, onDelete }: {
+const EMPTY_EMP = { name: "", devices: 0, notes: "" }
+
+function EmpModal({ employee, onClose, onSave, onDelete }: {
   employee: Employee | null
   onClose: () => void
-  onSave: (data: typeof EMPTY) => Promise<void>
+  onSave: (data: typeof EMPTY_EMP) => Promise<void>
   onDelete?: () => Promise<void>
 }) {
   const isNew = !employee?.id
@@ -46,7 +59,6 @@ function Modal({ employee, onClose, onSave, onDelete }: {
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
           </button>
         </div>
-
         <div className="px-6 py-5 space-y-4">
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Name</label>
@@ -68,7 +80,6 @@ function Modal({ employee, onClose, onSave, onDelete }: {
               className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500 resize-none"/>
           </div>
         </div>
-
         <div className="px-6 py-4 border-t border-gray-800 flex items-center gap-3">
           {!isNew && onDelete && (
             <button onClick={async () => { await onDelete() }}
@@ -88,6 +99,46 @@ function Modal({ employee, onClose, onSave, onDelete }: {
   )
 }
 
+function ArchiveModal({ pair, employeeName, onClose, onArchive }: {
+  pair: Pair
+  employeeName: string
+  onClose: () => void
+  onArchive: (reason: string) => Promise<void>
+}) {
+  const [reason, setReason] = useState(ARCHIVE_REASONS[0])
+  const [saving, setSaving] = useState(false)
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4"
+      onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-sm">
+        <div className="px-6 py-5 border-b border-gray-800">
+          <h2 className="text-white font-semibold">Account entfernen</h2>
+          <p className="text-gray-500 text-sm mt-1.5">
+            <span className="text-white font-medium">{pair.creator}{pair.branding ? ` — ${pair.branding}` : ""}</span> wird in den Verlauf verschoben. Kein Datenverlust, zählt nicht mehr zur Kapazität.
+          </p>
+        </div>
+        <div className="px-6 py-5">
+          <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-2">Grund</label>
+          <select value={reason} onChange={e => setReason(e.target.value)}
+            className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-gray-500">
+            {ARCHIVE_REASONS.map(r => <option key={r} value={r}>{r}</option>)}
+          </select>
+        </div>
+        <div className="px-6 py-4 border-t border-gray-800 flex items-center gap-3 justify-end">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Abbrechen</button>
+          <button
+            onClick={async () => { setSaving(true); await onArchive(reason); setSaving(false) }}
+            disabled={saving}
+            className="px-5 py-2 bg-red-600 hover:bg-red-500 text-white font-medium rounded-lg text-sm disabled:opacity-50">
+            {saving ? "Wird entfernt…" : "Account entfernen"}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function StatPill({ label, value, color }: { label: string; value: number | string; color: string }) {
   return (
     <div className="flex items-center justify-between">
@@ -98,32 +149,36 @@ function StatPill({ label, value, color }: { label: string; value: number | stri
 }
 
 export default function EmployeesPage() {
-  const [employees, setEmployees] = useState<Employee[]>([])
-  const [pairs,     setPairs]     = useState<Pair[]>([])
-  const [loading,   setLoading]   = useState(true)
-  const [modal,     setModal]     = useState<{ mode: "add" } | { mode: "edit"; employee: Employee } | null>(null)
-  const [selected,  setSelected]  = useState<string | null>(null)
+  const [employees,      setEmployees]      = useState<Employee[]>([])
+  const [pairs,          setPairs]          = useState<Pair[]>([])
+  const [archivedPairs,  setArchivedPairs]  = useState<Pair[]>([])
+  const [loading,        setLoading]        = useState(true)
+  const [modal,          setModal]          = useState<{ mode: "add" } | { mode: "edit"; employee: Employee } | null>(null)
+  const [selected,       setSelected]       = useState<string | null>(null)
+  const [archiveTarget,  setArchiveTarget]  = useState<Pair | null>(null)
 
   async function load() {
     setLoading(true)
-    const [empRes, pairRes] = await Promise.all([
+    const [empRes, pairRes, archRes] = await Promise.all([
       fetch("/api/employees"),
       fetch("/api/creator-accounts"),
+      fetch("/api/creator-accounts?archived=1"),
     ])
-    const [emps, prs] = await Promise.all([empRes.json(), pairRes.json()])
+    const [emps, prs, arch] = await Promise.all([empRes.json(), pairRes.json(), archRes.json()])
     setEmployees(Array.isArray(emps) ? emps : [])
     setPairs(Array.isArray(prs) ? prs : [])
+    setArchivedPairs(Array.isArray(arch) ? arch : [])
     setLoading(false)
   }
 
   useEffect(() => { load() }, [])
 
   function getStats(name: string) {
-    const igManaged  = pairs.filter(p => p.ig_mitarbeiter === name)
-    const fbManaged  = pairs.filter(p => p.fb_mitarbeiter === name)
-    const content    = pairs.filter(p => p.content_creator === name)
-    const igMissing  = igManaged.filter(p => p.ig_status === "Fehlt" || !p.ig_posting || !p.ig_link).length
-    const fbMissing  = fbManaged.filter(p => p.fb_status === "Fehlt" || !p.fb_posting || !p.fb_link).length
+    const igManaged = pairs.filter(p => p.ig_mitarbeiter === name)
+    const fbManaged = pairs.filter(p => p.fb_mitarbeiter === name)
+    const content   = pairs.filter(p => p.content_creator === name)
+    const igMissing = igManaged.filter(p => p.ig_status === "Fehlt" || !p.ig_posting || !p.ig_link).length
+    const fbMissing = fbManaged.filter(p => p.fb_status === "Fehlt" || !p.fb_posting || !p.fb_link).length
     return { igManaged: igManaged.length, fbManaged: fbManaged.length, content: content.length, igMissing, fbMissing }
   }
 
@@ -134,7 +189,14 @@ export default function EmployeesPage() {
     )
   }, [selected, pairs])
 
-  async function handleSave(data: typeof EMPTY) {
+  const selectedArchived = useMemo(() => {
+    if (!selected) return []
+    return archivedPairs.filter(p =>
+      p.ig_mitarbeiter === selected || p.fb_mitarbeiter === selected || p.content_creator === selected
+    )
+  }, [selected, archivedPairs])
+
+  async function handleSave(data: typeof EMPTY_EMP) {
     if (modal?.mode === "edit") {
       await fetch(`/api/employees/${modal.employee.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
@@ -152,6 +214,28 @@ export default function EmployeesPage() {
     if (modal?.mode !== "edit") return
     await fetch(`/api/employees/${modal.employee.id}`, { method: "DELETE" })
     setModal(null)
+    load()
+  }
+
+  async function handleArchive(reason: string) {
+    if (!archiveTarget || !selected) return
+    await fetch(`/api/creator-accounts/${archiveTarget.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        archived: true,
+        archive_reason: reason,
+        archived_at: new Date().toISOString(),
+        archived_by: selected,
+      }),
+    })
+    setArchiveTarget(null)
+    load()
+  }
+
+  async function handlePermanentDelete(pair: Pair) {
+    if (!confirm(`"${pair.creator}${pair.branding ? ` — ${pair.branding}` : ""}" wirklich permanent löschen? Das kann nicht rückgängig gemacht werden.`)) return
+    await fetch(`/api/creator-accounts/${pair.id}`, { method: "DELETE" })
     load()
   }
 
@@ -214,7 +298,7 @@ export default function EmployeesPage() {
                   <div className="space-y-1.5">
                     <StatPill label="IG accounts managed" value={stats.igManaged} color="text-purple-400"/>
                     <StatPill label="FB accounts managed" value={stats.fbManaged} color="text-blue-400"/>
-                    <StatPill label="Content created for" value={stats.content}   color="text-gray-300"/>
+                    <StatPill label="Content created for"  value={stats.content}  color="text-gray-300"/>
                     {(stats.igMissing + stats.fbMissing) > 0 && (
                       <StatPill label="Tasks missing" value={stats.igMissing + stats.fbMissing} color="text-red-400"/>
                     )}
@@ -248,45 +332,100 @@ export default function EmployeesPage() {
                 <p className="text-gray-500 text-sm">Click an employee to see their accounts</p>
               </div>
             ) : (
-              <div>
-                <h2 className="text-white font-semibold mb-4">{selected}'s Accounts <span className="text-gray-500 font-normal text-sm">({selectedPairs.length})</span></h2>
-                {selectedPairs.length === 0 ? (
-                  <p className="text-gray-500 text-sm">No accounts assigned yet.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {selectedPairs.map((p, i) => {
-                      const igOk = p.ig_status === "Fertig" && p.ig_posting && !!p.ig_link
-                      const fbOk = p.fb_status === "Fertig" && p.fb_posting && !!p.fb_link
-                      return (
-                        <div key={i} className={`bg-gray-900 border rounded-xl p-4 ${!igOk || !fbOk ? "border-red-900/40" : "border-gray-800"}`}>
-                          <div className="flex items-center justify-between mb-3">
-                            <div>
-                              <span className="text-white font-medium text-sm">{p.creator}</span>
-                              {p.branding && <span className="text-gray-500 text-xs ml-2">{p.branding}</span>}
+              <div className="space-y-6">
+                {/* Active accounts */}
+                <div>
+                  <h2 className="text-white font-semibold mb-4">
+                    {selected}&apos;s Accounts
+                    <span className="text-gray-500 font-normal text-sm ml-2">({selectedPairs.length} active)</span>
+                  </h2>
+                  {selectedPairs.length === 0 ? (
+                    <p className="text-gray-500 text-sm">Keine aktiven Accounts zugewiesen.</p>
+                  ) : (
+                    <div className="space-y-3">
+                      {selectedPairs.map(p => {
+                        const igOk = p.ig_status === "Fertig" && p.ig_posting && !!p.ig_link
+                        const fbOk = p.fb_status === "Fertig" && p.fb_posting && !!p.fb_link
+                        return (
+                          <div key={p.id} className={`bg-gray-900 border rounded-xl p-4 ${!igOk || !fbOk ? "border-red-900/40" : "border-gray-800"}`}>
+                            <div className="flex items-center justify-between mb-3">
+                              <div>
+                                <span className="text-white font-medium text-sm">{p.creator}</span>
+                                {p.branding && <span className="text-gray-500 text-xs ml-2">{p.branding}</span>}
+                              </div>
+                              <div className="flex items-center gap-2">
+                                <div className="flex gap-2 text-xs">
+                                  {p.ig_mitarbeiter === selected && <span className="text-purple-400 bg-purple-900/20 border border-purple-800 px-2 py-0.5 rounded-full">IG Manager</span>}
+                                  {p.fb_mitarbeiter === selected && <span className="text-blue-400 bg-blue-900/20 border border-blue-800 px-2 py-0.5 rounded-full">FB Manager</span>}
+                                  {p.content_creator === selected && <span className="text-gray-300 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full">Content</span>}
+                                </div>
+                                <button
+                                  onClick={() => setArchiveTarget(p)}
+                                  title="Account entfernen"
+                                  className="text-gray-600 hover:text-red-400 transition-colors p-1 rounded">
+                                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                                </button>
+                              </div>
                             </div>
-                            <div className="flex gap-2 text-xs">
-                              {p.ig_mitarbeiter === selected && <span className="text-purple-400 bg-purple-900/20 border border-purple-800 px-2 py-0.5 rounded-full">IG Manager</span>}
-                              {p.fb_mitarbeiter === selected && <span className="text-blue-400 bg-blue-900/20 border border-blue-800 px-2 py-0.5 rounded-full">FB Manager</span>}
-                              {p.content_creator === selected && <span className="text-gray-300 bg-gray-800 border border-gray-700 px-2 py-0.5 rounded-full">Content</span>}
+                            <div className="grid grid-cols-2 gap-3 text-xs">
+                              <div className="space-y-1">
+                                <p className="text-purple-400 font-medium mb-1">Instagram</p>
+                                <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.ig_status === "Fertig" ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Account {p.ig_status === "Fertig" ? "live" : "fehlt"}</span></div>
+                                <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.ig_posting ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Posting {p.ig_posting ? "aktiv" : "inaktiv"}</span></div>
+                                <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.ig_link ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Link {p.ig_link ? "gesetzt" : "fehlt"}</span></div>
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-blue-400 font-medium mb-1">Facebook</p>
+                                <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.fb_status === "Fertig" ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Page {p.fb_status === "Fertig" ? "live" : "fehlt"}</span></div>
+                                <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.fb_posting ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Posting {p.fb_posting ? "aktiv" : "inaktiv"}</span></div>
+                                <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.fb_link ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Link {p.fb_link ? "gesetzt" : "fehlt"}</span></div>
+                              </div>
                             </div>
                           </div>
-                          <div className="grid grid-cols-2 gap-3 text-xs">
-                            <div className="space-y-1">
-                              <p className="text-purple-400 font-medium mb-1">Instagram</p>
-                              <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.ig_status === "Fertig" ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Account {p.ig_status === "Fertig" ? "live" : "missing"}</span></div>
-                              <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.ig_posting ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Posting {p.ig_posting ? "active" : "inactive"}</span></div>
-                              <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.ig_link ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Link {p.ig_link ? "set" : "missing"}</span></div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
+
+                {/* History section */}
+                {selectedArchived.length > 0 && (
+                  <div>
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="h-px flex-1 bg-gray-800"/>
+                      <span className="text-gray-600 text-xs uppercase tracking-wider font-medium">Verlauf ({selectedArchived.length})</span>
+                      <div className="h-px flex-1 bg-gray-800"/>
+                    </div>
+                    <div className="space-y-2">
+                      {selectedArchived.map(p => (
+                        <div key={p.id} className="bg-gray-900/40 border border-gray-800/60 rounded-xl p-4">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3 flex-wrap">
+                              <span className="text-gray-400 font-medium text-sm">{p.creator}</span>
+                              {p.branding && <span className="text-gray-600 text-xs">{p.branding}</span>}
+                              {p.archive_reason && (
+                                <span className="text-xs text-amber-500/80 bg-amber-900/20 border border-amber-800/30 px-2 py-0.5 rounded-full">
+                                  {p.archive_reason}
+                                </span>
+                              )}
                             </div>
-                            <div className="space-y-1">
-                              <p className="text-blue-400 font-medium mb-1">Facebook</p>
-                              <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.fb_status === "Fertig" ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Page {p.fb_status === "Fertig" ? "live" : "missing"}</span></div>
-                              <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.fb_posting ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Posting {p.fb_posting ? "active" : "inactive"}</span></div>
-                              <div className="flex items-center gap-1.5"><span className={`w-1.5 h-1.5 rounded-full ${p.fb_link ? "bg-green-400" : "bg-red-400"}`}/><span className="text-gray-400">Link {p.fb_link ? "set" : "missing"}</span></div>
+                            <div className="flex items-center gap-3 shrink-0">
+                              {p.archived_at && (
+                                <span className="text-gray-700 text-xs">
+                                  {new Date(p.archived_at).toLocaleDateString("de-DE", { day: "2-digit", month: "2-digit", year: "numeric" })}
+                                </span>
+                              )}
+                              <button
+                                onClick={() => handlePermanentDelete(p)}
+                                title="Permanent löschen"
+                                className="text-gray-700 hover:text-red-500 transition-colors p-1 rounded">
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></svg>
+                              </button>
                             </div>
                           </div>
                         </div>
-                      )
-                    })}
+                      ))}
+                    </div>
                   </div>
                 )}
               </div>
@@ -296,11 +435,20 @@ export default function EmployeesPage() {
       )}
 
       {modal && (
-        <Modal
+        <EmpModal
           employee={modal.mode === "edit" ? modal.employee : null}
           onClose={() => setModal(null)}
           onSave={handleSave}
           onDelete={modal.mode === "edit" ? handleDelete : undefined}
+        />
+      )}
+
+      {archiveTarget && selected && (
+        <ArchiveModal
+          pair={archiveTarget}
+          employeeName={selected}
+          onClose={() => setArchiveTarget(null)}
+          onArchive={handleArchive}
         />
       )}
     </div>
