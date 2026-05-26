@@ -12,7 +12,7 @@ export async function POST(
 
   const { data: account, error: accErr } = await supabase
     .from("instagram_accounts")
-    .select("id, username, external_instagram_id, fb_username")
+    .select("id, username, external_instagram_id, fb_username, last_synced_at")
     .eq("id", id)
     .single()
 
