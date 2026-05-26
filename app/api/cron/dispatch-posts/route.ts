@@ -6,11 +6,9 @@ const FOLLOWUP_AFTER_MS    = 30 * 60 * 1000
 const OWNER_ALERT_AFTER_MS = 60 * 60 * 1000
 const OWNER_CHAT_ID        = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 
-// Sending window in Berlin time (CEST = UTC+2 in summer, CET = UTC+1 in winter)
-// Adjust BERLIN_UTC_OFFSET to +1 in winter
-const BERLIN_UTC_OFFSET = 2
-const SEND_WINDOW_START = 8   // 08:00 Berlin
-const SEND_WINDOW_END   = 21  // 21:00 Berlin
+// Berlin time offset (CEST = UTC+2 in summer, adjust to +1 in winter)
+const BERLIN_UTC_OFFSET  = 2
+const DISPATCH_HOUR      = 19  // Bot starts sending at 19:00 Berlin time
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization")
@@ -21,16 +19,15 @@ export async function GET(request: Request) {
   const supabase = createServerClient()
   const now = new Date()
 
-  // Convert UTC to Berlin time for window check
+  // Only send after 19:00 Berlin time
   const berlinHour = (now.getUTCHours() + BERLIN_UTC_OFFSET) % 24
-  if (berlinHour < SEND_WINDOW_START || berlinHour >= SEND_WINDOW_END) {
-    return NextResponse.json({ ok: true, skipped: "outside sending window", berlinHour })
+  if (berlinHour < DISPATCH_HOUR) {
+    return NextResponse.json({ ok: true, skipped: "before dispatch time", berlinHour, dispatchAt: DISPATCH_HOUR })
   }
 
   const todayStr = now.toISOString().slice(0, 10)
-  const nowTime  = now.toTimeString().slice(0, 5)  // "HH:MM"
 
-  // ── 1. Send due posts (only status = 'bereit') ───────────────────
+  // ── 1. Send all bereit posts for today (or earlier if missed) ────
   const { data: duePosts } = await supabase
     .from("posting_schedule")
     .select("*")
@@ -40,8 +37,6 @@ export async function GET(request: Request) {
   let dispatched = 0
 
   for (const post of duePosts ?? []) {
-    // If today, check time too
-    if (post.send_date === todayStr && post.send_time.slice(0, 5) > nowTime) continue
 
     const username = post.account.replace(/^@/, "")
     const { data: pair } = await supabase
