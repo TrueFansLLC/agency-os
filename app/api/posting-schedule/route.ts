@@ -3,13 +3,15 @@ import { createServerClient } from "@/lib/supabase/server"
 
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const from = searchParams.get("from")
-  const to   = searchParams.get("to")
+  const from   = searchParams.get("from")
+  const to     = searchParams.get("to")
+  const status = searchParams.get("status")
 
   const supabase = createServerClient()
   let query = supabase.from("posting_schedule").select("*").order("send_date").order("reel_number")
-  if (from) query = query.gte("send_date", from)
-  if (to)   query = query.lte("send_date", to)
+  if (from)   query = query.gte("send_date", from)
+  if (to)     query = query.lte("send_date", to)
+  if (status) query = query.eq("status", status)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
