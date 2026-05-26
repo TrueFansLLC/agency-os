@@ -1,7 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage } from "@/lib/telegram"
-import { markAsConfirmed } from "@/lib/notion"
 
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
@@ -40,25 +39,23 @@ export async function POST(request: NextRequest) {
 
   // ── Confirmation: reply to a bot message ─────────────────────────
   if (replyToId) {
-    const { data: log } = await supabase
-      .from("post_dispatch_log")
+    const { data: post } = await supabase
+      .from("posting_schedule")
       .select("*")
       .eq("telegram_message_id", replyToId)
       .eq("chat_id", chatId)
-      .is("confirmed_at", null)
+      .neq("status", "gepostet")
       .maybeSingle()
 
-    if (log) {
+    if (post) {
       await supabase
-        .from("post_dispatch_log")
-        .update({ confirmed_at: new Date().toISOString() })
-        .eq("id", log.id)
-
-      await markAsConfirmed(log.notion_page_id)
+        .from("posting_schedule")
+        .update({ status: "gepostet", confirmed_at: new Date().toISOString() })
+        .eq("id", post.id)
 
       await sendMessage(chatId,
-        `✅ Danke! Post für <b>${log.account}</b> (${log.platform}) wurde als gepostet vermerkt.`,
-        log.thread_id ?? undefined
+        `✅ Danke! R${post.reel_number} für <b>@${post.account}</b> (${post.platform}) wurde als gepostet vermerkt.`,
+        post.thread_id ?? undefined
       )
     }
   }
