@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js"
 import { NextResponse, type NextRequest } from "next/server"
 
 export async function POST(request: NextRequest) {
-  const { email } = await request.json()
+  const { email, name, allowed_pages } = await request.json()
 
   if (!email || typeof email !== "string") {
     return NextResponse.json({ error: "Email is required." }, { status: 400 })
@@ -14,19 +14,19 @@ export async function POST(request: NextRequest) {
     { auth: { autoRefreshToken: false, persistSession: false } }
   )
 
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://agency-os-q29n.vercel.app"
+  const siteUrl    = process.env.NEXT_PUBLIC_SITE_URL ?? "https://agency-os-q29n.vercel.app"
   const redirectTo = `${siteUrl}/auth/callback?next=/set-password`
+  const metadata   = { name: name ?? email, role: "employee", allowed_pages: allowed_pages ?? ["posting-planer"] }
 
-  const { error } = await supabase.auth.admin.inviteUserByEmail(email, { redirectTo })
+  const { error } = await supabase.auth.admin.inviteUserByEmail(email, { redirectTo, data: metadata })
 
   if (error) {
-    // User already exists → delete them and re-invite fresh
     const { data: { users } } = await supabase.auth.admin.listUsers()
     const existing = users.find(u => u.email === email)
 
     if (existing) {
       await supabase.auth.admin.deleteUser(existing.id)
-      const { error: retryError } = await supabase.auth.admin.inviteUserByEmail(email, { redirectTo })
+      const { error: retryError } = await supabase.auth.admin.inviteUserByEmail(email, { redirectTo, data: metadata })
       if (retryError) return NextResponse.json({ error: retryError.message }, { status: 400 })
       return NextResponse.json({ success: true })
     }
