@@ -17,6 +17,16 @@ export async function POST(request: NextRequest) {
 
   const supabase = createServerClient()
 
+  // ── /chatid: show chat and thread IDs ───────────────────────────
+  if (text.startsWith("/chatid")) {
+    const threadId = message.message_thread_id ?? null
+    await sendMessage(chatId,
+      `🆔 <b>Chat ID:</b> <code>${chatId}</code>\n📌 <b>Thread ID:</b> <code>${threadId ?? "kein Topic"}</code>`,
+      threadId ?? undefined
+    )
+    return NextResponse.json({ ok: true })
+  }
+
   // ── /start: register employee ────────────────────────────────────
   if (text.startsWith("/start")) {
     const { data: existing } = await supabase
