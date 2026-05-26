@@ -6,9 +6,9 @@ const FOLLOWUP_AFTER_MS    = 30 * 60 * 1000
 const OWNER_ALERT_AFTER_MS = 60 * 60 * 1000
 const OWNER_CHAT_ID        = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 
-// Berlin time offset (CEST = UTC+2 in summer, adjust to +1 in winter)
-const BERLIN_UTC_OFFSET  = 2
-const DISPATCH_HOUR      = 19  // Bot starts sending at 19:00 Berlin time
+// Bangkok time = UTC+7 (no DST)
+const BERLIN_UTC_OFFSET  = 7
+const DISPATCH_HOUR      = 19  // Bot starts sending at 19:00 Bangkok time
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization")
