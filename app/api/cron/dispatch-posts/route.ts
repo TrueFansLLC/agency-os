@@ -2,9 +2,15 @@ import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendVideo, sendMessage } from "@/lib/telegram"
 
-const FOLLOWUP_AFTER_MS   = 30 * 60 * 1000
+const FOLLOWUP_AFTER_MS    = 30 * 60 * 1000
 const OWNER_ALERT_AFTER_MS = 60 * 60 * 1000
-const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
+const OWNER_CHAT_ID        = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
+
+// Sending window in Berlin time (CEST = UTC+2 in summer, CET = UTC+1 in winter)
+// Adjust BERLIN_UTC_OFFSET to +1 in winter
+const BERLIN_UTC_OFFSET = 2
+const SEND_WINDOW_START = 8   // 08:00 Berlin
+const SEND_WINDOW_END   = 21  // 21:00 Berlin
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization")
@@ -14,14 +20,21 @@ export async function GET(request: Request) {
 
   const supabase = createServerClient()
   const now = new Date()
+
+  // Convert UTC to Berlin time for window check
+  const berlinHour = (now.getUTCHours() + BERLIN_UTC_OFFSET) % 24
+  if (berlinHour < SEND_WINDOW_START || berlinHour >= SEND_WINDOW_END) {
+    return NextResponse.json({ ok: true, skipped: "outside sending window", berlinHour })
+  }
+
   const todayStr = now.toISOString().slice(0, 10)
   const nowTime  = now.toTimeString().slice(0, 5)  // "HH:MM"
 
-  // ── 1. Send due posts ────────────────────────────────────────────
+  // ── 1. Send due posts (only status = 'bereit') ───────────────────
   const { data: duePosts } = await supabase
     .from("posting_schedule")
     .select("*")
-    .eq("status", "geplant")
+    .eq("status", "bereit")
     .lte("send_date", todayStr)
 
   let dispatched = 0
@@ -119,10 +132,12 @@ export async function GET(request: Request) {
 
 function buildCaption(post: { post_text: string; caption: string; account: string; platform: string; send_time: string; reel_number: number }) {
   const lines: string[] = []
-  lines.push(`📱 <b>@${post.account}</b> · ${post.platform}`)
-  lines.push(`⏰ Posten um ${post.send_time.slice(0, 5)} Uhr (R${post.reel_number})`)
-  if (post.post_text) lines.push(`\n<b>${post.post_text}</b>`)
+  lines.push(`🆔 <b>Account: @${post.account}</b>`)
+  lines.push(`📲 Plattform: ${post.platform}`)
+  lines.push(`⏰ Posten um: ${post.send_time.slice(0, 5)} Uhr`)
+  lines.push(`📌 Post ${post.reel_number} von heute`)
+  if (post.post_text) lines.push(`\n——————————————\n<b>${post.post_text}</b>`)
   if (post.caption)   lines.push(`\n${post.caption}`)
-  lines.push(`\n✅ Mit dieser Nachricht antworten sobald du gepostet hast`)
+  lines.push(`\n——————————————\n✅ Antworte auf diese Nachricht wenn du gepostet hast`)
   return lines.join("\n")
 }
