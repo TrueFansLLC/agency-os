@@ -7,12 +7,17 @@ export async function GET(request: NextRequest) {
   const accountId = searchParams.get("account_id")
   const supabase  = createServerClient()
 
+  const from = searchParams.get("from")
+  const to   = searchParams.get("to")
+
   let query = supabase
     .from("threads_daily_batches")
     .select("*, account:threads_accounts(*)")
     .order("date", { ascending: false })
 
   if (date)      query = query.eq("date", date)
+  if (from)      query = query.gte("date", from)
+  if (to)        query = query.lte("date", to)
   if (accountId) query = query.eq("account_id", accountId)
 
   const { data, error } = await query

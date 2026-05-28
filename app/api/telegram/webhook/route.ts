@@ -11,8 +11,8 @@ export async function POST(request: NextRequest) {
   // ── Inline button tap (callback_query) ──────────────────────────
   if (body.callback_query) {
     const data = body.callback_query.data ?? ""
-    if (data.startsWith("as:")) {
-      await handleStatusCheck(body.callback_query)
+    if (data.startsWith("sc:")) {
+      await handleStatusCycle(body.callback_query)
     } else if (data !== "_") {
       await handleCallback(body.callback_query)
     } else {
@@ -264,38 +264,38 @@ async function handleCallback(cb: {
   }
 }
 
-async function handleStatusCheck(cb: {
+async function handleStatusCycle(cb: {
   id: string
   from: { id: number; first_name?: string }
-  message: { message_id: number; chat: { id: number }; text?: string }
+  message: { message_id: number; chat: { id: number } }
   data: string
 }) {
+  // data: sc:{ig|fb}:{a|r|b}:{username}
   const parts     = cb.data.split(":")
-  const action    = parts[1]  // a | r | b
-  const platform  = parts[2] as "ig" | "fb"
+  const platform  = parts[1] as "ig" | "fb"
+  const action    = parts[2]  // a | r | b
   const username  = parts.slice(3).join(":")
+  if (!username || !action) { await answerCallback(cb.id); return }
 
-  if (!username) { await answerCallback(cb.id); return }
+  const newStatus = action === "b" ? "banned" : action === "r" ? "restricted" : "active"
+  const icon      = newStatus === "banned" ? "🔴" : newStatus === "restricted" ? "🟠" : "✅"
+  const label     = newStatus === "banned" ? "Banned" : newStatus === "restricted" ? "Restricted" : "Active"
 
-  const newStatus = action === "a" ? "active" : action === "r" ? "restricted" : "banned"
-  const icon      = newStatus === "active" ? "🟢" : newStatus === "restricted" ? "🟠" : "🔴"
-  const label     = newStatus === "active" ? "Active" : newStatus === "restricted" ? "Restricted" : "Banned"
+  const supabase = createServerClient()
+  const now      = new Date().toISOString()
+  const chatId   = String(cb.message.chat.id)
+  const msgId    = cb.message.message_id
 
-  const supabase  = createServerClient()
-  const now       = new Date().toISOString()
-  const chatId    = String(cb.message.chat.id)
-  const msgId     = cb.message.message_id
-
-  const filter = platform === "ig" ? `ig_username.ilike.%${username}%` : `fb_username.ilike.%${username}%`
+  const usernameField = platform === "ig" ? "ig_username" : "fb_username"
   await supabase
     .from("account_pairs")
     .update({ status: newStatus, status_since: now, status_note: `Set by ${cb.from.first_name ?? "employee"}` })
-    .or(filter)
+    .ilike(usernameField, username)
 
-  // Re-fetch all accounts for this employee + platform to rebuild keyboard
+  // Rebuild full keyboard immediately so only this account shows new status
   const { data: emp } = await supabase
     .from("employees")
-    .select("name, telegram_ig_status_thread_id, telegram_fb_status_thread_id")
+    .select("name")
     .eq("telegram_chat_id", chatId)
     .maybeSingle()
 
@@ -330,20 +330,16 @@ async function handleStatusCheck(cb: {
   }
 }
 
-function statusIcon(s: string) { return s === "banned" ? "🔴" : s === "restricted" ? "🟠" : "🟢" }
-
 function buildStatusKeyboard(accounts: { username: string; status: string }[], platform: "ig" | "fb") {
   const rows = []
   for (const acc of accounts) {
-    const icon = statusIcon(acc.status)
-    const name = acc.username.slice(0, 20)
-    // Label row shows current status icon
-    rows.push([{ text: `${icon} ${name}`, callback_data: `_` }])
-    // Button row: selected option gets a ✓ indicator
+    const name = acc.username.slice(0, 22)
+    const s    = acc.status ?? "active"
+    rows.push([{ text: `@${name}`, callback_data: `_` }])
     rows.push([
-      { text: acc.status === "active"     ? "✅ Active ✓"     : "🟢 Active",     callback_data: `as:a:${platform}:${name}` },
-      { text: acc.status === "restricted" ? "🟠 Restricted ✓" : "⬜ Restricted", callback_data: `as:r:${platform}:${name}` },
-      { text: acc.status === "banned"     ? "🔴 Banned ✓"     : "⬜ Banned",     callback_data: `as:b:${platform}:${name}` },
+      { text: s === "active"     ? "✅ Active"     : "○ Active",     callback_data: `sc:${platform}:a:${name}` },
+      { text: s === "restricted" ? "🟠 Restricted" : "○ Restricted", callback_data: `sc:${platform}:r:${name}` },
+      { text: s === "banned"     ? "🔴 Banned"     : "○ Banned",     callback_data: `sc:${platform}:b:${name}` },
     ])
   }
   return rows

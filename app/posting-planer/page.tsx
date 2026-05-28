@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
+import { ThreadsAccount, ThreadsDailyBatch, calcPostsPerDay, getPostingTimes } from "@/types/threads"
 
 interface Post {
   id: string
@@ -57,7 +58,7 @@ function toDateStr(d: Date) { return d.toISOString().slice(0, 10) }
 function formatDayLabel(d: Date) { return d.toLocaleDateString("de-DE", { weekday: "short", day: "numeric", month: "numeric" }) }
 function isToday(d: Date) { return toDateStr(d) === toDateStr(new Date()) }
 
-type CreatorTab = "Alle" | "Cathy" | "Neyla" | "Romina" | "Wartend"
+type CreatorTab = "Alle" | "Cathy" | "Neyla" | "Romina" | "Wartend" | "Threads"
 type ReelForm = { caption: string; video_link: string; platform: string; existingId?: string; existingStatus?: string }
 
 export default function PostingPlaner() {
@@ -82,6 +83,15 @@ export default function PostingPlaner() {
   const [activateModal, setActivateModal] = useState<{ accounts: Post[]; placeholder: string } | null>(null)
   const [realUsername, setRealUsername]   = useState("")
   const [waitForm, setWaitForm] = useState({ creator: "Cathy", account: "", platform: "Alle", reel_number: 1, send_date: toDateStr(new Date()), send_time: "09:00", caption: "", video_link: "" })
+
+  // ── Threads state ────────────────────────────────────────────
+  const [threadsAccounts, setThreadsAccounts] = useState<ThreadsAccount[]>([])
+  const [threadsBatches,  setThreadsBatches]  = useState<ThreadsDailyBatch[]>([])
+  const [threadsBatchModal, setThreadsBatchModal] = useState<{
+    account: ThreadsAccount; date: string; existing: ThreadsDailyBatch | null
+  } | null>(null)
+  const [threadsBatchForm, setThreadsBatchForm] = useState({ drive_folder_url: "", posts_count: 1 })
+  const [threadsSaving, setThreadsSaving] = useState(false)
 
   const days    = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const fromStr = toDateStr(weekStart)
@@ -224,6 +234,91 @@ export default function PostingPlaner() {
     } finally { setSaving(false) }
   }
 
+  // ── Threads load ─────────────────────────────────────────────
+  const loadThreads = useCallback(async () => {
+    const [accRes, batchRes] = await Promise.all([
+      fetch("/api/threads-accounts"),
+      fetch(`/api/threads-batches?from=${fromStr}&to=${toStr}`),
+    ])
+    const [accs, batches] = await Promise.all([accRes.json(), batchRes.json()])
+    setThreadsAccounts(Array.isArray(accs) ? accs.filter((a: ThreadsAccount) => !a.archived) : [])
+    setThreadsBatches(Array.isArray(batches) ? batches : [])
+  }, [fromStr, toStr])
+
+  useEffect(() => {
+    if (activeCreator === "Threads") loadThreads()
+  }, [activeCreator, loadThreads])
+
+  function getThreadsBatch(accountId: string, date: Date) {
+    return threadsBatches.find(b => b.account_id === accountId && b.date === toDateStr(date)) ?? null
+  }
+
+  function openThreadsBatchModal(account: ThreadsAccount, date: Date) {
+    const existing = getThreadsBatch(account.id, date)
+    const postsDefault = calcPostsPerDay(account.ramp_up_started_at)
+    setThreadsBatchForm({
+      drive_folder_url: existing?.drive_folder_url ?? "",
+      posts_count:      existing?.posts_count      ?? postsDefault,
+    })
+    setThreadsBatchModal({ account, date: toDateStr(date), existing: existing ?? null })
+  }
+
+  async function handleSaveThreadsBatch() {
+    if (!threadsBatchModal) return
+    const { account, date, existing } = threadsBatchModal
+    setThreadsSaving(true)
+    try {
+      if (existing) {
+        const res = await fetch(`/api/threads-batches/${existing.id}`, {
+          method: "PATCH", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            drive_folder_url: threadsBatchForm.drive_folder_url,
+            posts_count:      threadsBatchForm.posts_count,
+            images_count:     threadsBatchForm.posts_count * 2,
+          }),
+        })
+        const updated = await res.json()
+        setThreadsBatches(bs => bs.map(b => b.id === existing.id ? updated : b))
+      } else {
+        const res = await fetch("/api/threads-batches", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            account_id:       account.id,
+            date,
+            drive_folder_url: threadsBatchForm.drive_folder_url,
+            posts_count:      threadsBatchForm.posts_count,
+            images_count:     threadsBatchForm.posts_count * 2,
+            status:           "ready",
+          }),
+        })
+        const created = await res.json()
+        setThreadsBatches(bs => [...bs, created])
+      }
+      setThreadsBatchModal(null)
+    } finally { setThreadsSaving(false) }
+  }
+
+  async function handleDeleteThreadsBatch() {
+    if (!threadsBatchModal?.existing) return
+    setThreadsSaving(true)
+    try {
+      await fetch(`/api/threads-batches/${threadsBatchModal.existing.id}`, { method: "DELETE" })
+      setThreadsBatches(bs => bs.filter(b => b.id !== threadsBatchModal.existing!.id))
+      setThreadsBatchModal(null)
+    } finally { setThreadsSaving(false) }
+  }
+
+  const THREADS_BATCH_STYLE: Record<string, string> = {
+    ready:   "bg-blue-900/40 text-blue-300 border-blue-700",
+    sent:    "bg-yellow-900/40 text-yellow-300 border-yellow-700",
+    posted:  "bg-orange-900/40 text-orange-300 border-orange-700",
+    deleted: "bg-emerald-900/40 text-emerald-300 border-emerald-700",
+  }
+
+  const THREADS_BATCH_LABEL: Record<string, string> = {
+    ready: "Bereit", sent: "Gesendet", posted: "Gepostet", deleted: "Erledigt ✓",
+  }
+
   const waitingGroups = waitingPosts.reduce<Record<string, Post[]>>((acc, p) => {
     if (!acc[p.account]) acc[p.account] = []
     acc[p.account].push(p)
@@ -241,10 +336,12 @@ export default function PostingPlaner() {
           </p>
         </div>
         <div className="flex gap-1.5">
-          {(["Alle", "Cathy", "Neyla", "Romina", "Wartend"] as const).map(c => (
+          {(["Alle", "Cathy", "Neyla", "Romina", "Wartend", "Threads"] as const).map(c => (
             <button key={c} onClick={() => setActiveCreator(c)}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors relative ${
-                activeCreator === c ? "bg-white text-gray-900" : "text-gray-400 hover:text-white hover:bg-gray-800"
+                activeCreator === c
+                  ? c === "Threads" ? "bg-violet-600 text-white" : "bg-white text-gray-900"
+                  : "text-gray-400 hover:text-white hover:bg-gray-800"
               }`}>
               {c}
               {c === "Wartend" && Object.keys(waitingGroups).length > 0 && (
@@ -257,8 +354,86 @@ export default function PostingPlaner() {
         </div>
       </div>
 
-      {/* ── WARTEND VIEW ── */}
-      {activeCreator === "Wartend" ? (
+      {/* ── THREADS VIEW ── */}
+      {activeCreator === "Threads" ? (
+        <div className="flex-1 overflow-auto">
+          {/* Week nav */}
+          <div className="px-6 py-3 border-b border-gray-800 flex items-center justify-between shrink-0">
+            <div className="flex items-center gap-3">
+              <button onClick={() => setWeekStart(d => addDays(d, -7))} className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 18 9 12 15 6"/></svg>
+              </button>
+              <span className="text-sm text-gray-300 font-medium min-w-[220px] text-center">
+                {weekStart.toLocaleDateString("de-DE", { day: "numeric", month: "long" })} – {addDays(weekStart, 6).toLocaleDateString("de-DE", { day: "numeric", month: "long", year: "numeric" })}
+              </span>
+              <button onClick={() => setWeekStart(d => addDays(d, 7))} className="text-gray-400 hover:text-white p-1.5 rounded-lg hover:bg-gray-800">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+              </button>
+              <button onClick={() => { const d = new Date(); d.setHours(0,0,0,0); setWeekStart(d) }} className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1 rounded hover:bg-gray-800">Heute</button>
+            </div>
+            <div className="flex items-center gap-3 text-xs text-gray-500">
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block"/>Bereit</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-yellow-500 inline-block"/>Gesendet</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-orange-400 inline-block"/>Gepostet</span>
+              <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"/>Erledigt</span>
+            </div>
+          </div>
+
+          {threadsAccounts.length === 0 ? (
+            <div className="flex items-center justify-center h-40 text-gray-500 text-sm">
+              Keine aktiven Threads-Accounts. Accounts im Threads-Dashboard anlegen.
+            </div>
+          ) : (
+            <table className="w-full border-collapse" style={{ minWidth: "900px" }}>
+              <thead>
+                <tr className="border-b border-gray-800">
+                  <th className="sticky left-0 z-10 bg-gray-900 text-left px-4 py-3 text-xs font-medium text-gray-400 uppercase tracking-wider w-44 border-r border-gray-800">Account</th>
+                  {days.map(day => (
+                    <th key={day.toISOString()} className={`px-3 py-3 text-center text-xs font-medium uppercase tracking-wider border-r border-gray-800 ${isToday(day) ? "bg-gray-800/50" : ""}`} style={{ minWidth: "115px" }}>
+                      <div className={isToday(day) ? "text-blue-400 font-semibold" : "text-gray-400"}>{formatDayLabel(day)}</div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {threadsAccounts.map(acc => {
+                  const postsPerDay = calcPostsPerDay(acc.ramp_up_started_at)
+                  return (
+                    <tr key={acc.id} className="border-b border-gray-800/60 hover:bg-gray-800/10">
+                      <td className="sticky left-0 z-10 bg-gray-900 px-4 py-2 border-r border-gray-800">
+                        <div className="flex items-center gap-2">
+                          <span className="w-1.5 h-1.5 rounded-full shrink-0 bg-violet-500"/>
+                          <span className="text-sm text-gray-200 font-medium truncate max-w-[100px]">@{acc.username}</span>
+                        </div>
+                        <div className="text-xs text-gray-500 ml-3.5 mt-0.5">{postsPerDay}×/Tag · {acc.mitarbeiter?.split(",")[0] ?? "–"}</div>
+                      </td>
+                      {days.map(day => {
+                        const batch = getThreadsBatch(acc.id, day)
+                        return (
+                          <td key={day.toISOString()} className={`px-2 py-2 align-top border-r border-gray-800 ${isToday(day) ? "bg-gray-800/20" : ""}`}>
+                            {batch ? (
+                              <button onClick={() => openThreadsBatchModal(acc, day)}
+                                className={`w-full rounded text-xs border px-2 py-1.5 text-left transition-colors hover:opacity-80 ${THREADS_BATCH_STYLE[batch.status] ?? "bg-gray-800 text-gray-400 border-gray-700"}`}>
+                                <div className="font-medium">{THREADS_BATCH_LABEL[batch.status] ?? batch.status}</div>
+                                <div className="opacity-60 mt-0.5" style={{ fontSize:"10px" }}>{batch.posts_count} Posts · {batch.images_count} Bilder</div>
+                              </button>
+                            ) : (
+                              <button onClick={() => openThreadsBatchModal(acc, day)}
+                                className="w-full text-xs text-gray-600 hover:text-violet-300 hover:bg-violet-900/20 rounded py-1.5 border border-dashed border-gray-800 hover:border-violet-700">
+                                +
+                              </button>
+                            )}
+                          </td>
+                        )
+                      })}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          )}
+        </div>
+      ) : activeCreator === "Wartend" ? (
         <div className="flex-1 overflow-auto px-6 py-6">
           <div className="flex items-center justify-between mb-6">
             <div>
@@ -597,6 +772,75 @@ export default function PostingPlaner() {
                 className="px-4 py-2 bg-emerald-700 hover:bg-emerald-600 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors">
                 {saving ? "Aktiviert..." : "Account aktivieren"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── MODAL: Threads Batch ── */}
+      {threadsBatchModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setThreadsBatchModal(null)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+              <div>
+                <h2 className="text-white font-semibold">@{threadsBatchModal.account.username}</h2>
+                <p className="text-xs text-gray-400 mt-0.5">{threadsBatchModal.date} · Threads Batch</p>
+              </div>
+              <button onClick={() => setThreadsBatchModal(null)} className="text-gray-500 hover:text-white">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+              </button>
+            </div>
+            <div className="px-5 py-4 space-y-4">
+              <div>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Drive Ordner Link</label>
+                <input
+                  type="url"
+                  value={threadsBatchForm.drive_folder_url}
+                  onChange={e => setThreadsBatchForm(f => ({ ...f, drive_folder_url: e.target.value }))}
+                  placeholder="https://drive.google.com/drive/folders/..."
+                  className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-violet-500 placeholder-gray-600"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Anzahl Posts</label>
+                <div className="flex gap-2">
+                  {[1, 2, 3, 4, 5].map(n => (
+                    <button key={n} onClick={() => setThreadsBatchForm(f => ({ ...f, posts_count: n }))}
+                      className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${
+                        threadsBatchForm.posts_count === n
+                          ? "bg-violet-600 border-violet-500 text-white"
+                          : "bg-gray-800 border-gray-700 text-gray-400 hover:border-violet-600 hover:text-white"
+                      }`}>
+                      {n}
+                    </button>
+                  ))}
+                </div>
+                <p className="text-xs text-gray-500 mt-1.5">{threadsBatchForm.posts_count * 2} Bilder benötigt im Ordner</p>
+              </div>
+              <div className="bg-gray-800/60 rounded-lg px-4 py-3">
+                <p className="text-xs text-gray-400 font-medium mb-2">Posting-Zeiten (Bangkok)</p>
+                <div className="flex flex-wrap gap-2">
+                  {getPostingTimes(threadsBatchForm.posts_count).map(t => (
+                    <span key={t} className="text-xs bg-violet-900/40 text-violet-300 border border-violet-700/50 px-2 py-1 rounded">{t}</span>
+                  ))}
+                </div>
+              </div>
+            </div>
+            <div className="px-5 py-4 border-t border-gray-800 flex items-center justify-between">
+              <div>
+                {threadsBatchModal.existing && (
+                  <button onClick={handleDeleteThreadsBatch} disabled={threadsSaving}
+                    className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 rounded hover:bg-red-900/20 transition-colors">
+                    Löschen
+                  </button>
+                )}
+              </div>
+              <div className="flex gap-3">
+                <button onClick={() => setThreadsBatchModal(null)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Abbrechen</button>
+                <button onClick={handleSaveThreadsBatch} disabled={threadsSaving || !threadsBatchForm.drive_folder_url.trim()}
+                  className="px-4 py-2 bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium rounded-lg disabled:opacity-50 transition-colors">
+                  {threadsSaving ? "Speichert..." : threadsBatchModal.existing ? "Aktualisieren" : "Speichern"}
+                </button>
+              </div>
             </div>
           </div>
         </div>
