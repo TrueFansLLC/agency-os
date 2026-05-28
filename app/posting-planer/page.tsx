@@ -36,11 +36,11 @@ const CREATOR_ACCOUNTS: Record<string, { account: string; platform: string }[]> 
     { account: "rominasfarm",       platform: "Instagram" },
     { account: "rominaonthestreet", platform: "Instagram" },
     { account: "domrominaa",        platform: "Instagram" },
-    { account: "rominascamp",       platform: "IG + FB" },
+    { account: "rominascamp",       platform: "Alle" },
   ],
 }
 
-const REEL_TIMES: Record<number, string> = { 1: "09:00", 2: "14:00", 3: "19:00" }
+const REEL_TIMES: Record<number, string> = { 1: "23:00", 2: "00:00", 3: "01:00" }
 const CREATOR_COLORS: Record<string, string> = { Cathy: "bg-pink-500", Neyla: "bg-purple-500", Romina: "bg-blue-500" }
 const CREATOR_TEXT: Record<string, string>   = { Cathy: "text-pink-400", Neyla: "text-purple-400", Romina: "text-blue-400" }
 
@@ -58,6 +58,7 @@ function formatDayLabel(d: Date) { return d.toLocaleDateString("de-DE", { weekda
 function isToday(d: Date) { return toDateStr(d) === toDateStr(new Date()) }
 
 type CreatorTab = "Alle" | "Cathy" | "Neyla" | "Romina" | "Wartend"
+type ReelForm = { caption: string; video_link: string; platform: string; existingId?: string; existingStatus?: string }
 
 export default function PostingPlaner() {
   const [activeCreator, setActiveCreator] = useState<CreatorTab>("Alle")
@@ -67,16 +68,20 @@ export default function PostingPlaner() {
   const [loading, setLoading]       = useState(true)
   const [saving, setSaving]         = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [saveError, setSaveError]   = useState<string | null>(null)
 
-  // Regular calendar modal
-  const [modal, setModal] = useState<{ mode:"add"|"edit"; post?: Post; account: string; creator: string; platform: string; date: string; reelNumber: number } | null>(null)
-  const [form, setForm]   = useState({ post_text: "", caption: "", video_link: "", send_time: "09:00", platform: "Instagram" })
+  const [modal, setModal] = useState<{ account: string; creator: string; platform: string; date: string } | null>(null)
+  const [reelForms, setReelForms] = useState<ReelForm[]>([
+    { caption: "", video_link: "", platform: "Instagram" },
+    { caption: "", video_link: "", platform: "Instagram" },
+    { caption: "", video_link: "", platform: "Instagram" },
+  ])
 
   // Wartend modals
-  const [newWaitModal, setNewWaitModal]     = useState(false)
-  const [activateModal, setActivateModal]   = useState<{ accounts: Post[]; placeholder: string } | null>(null)
-  const [realUsername, setRealUsername]     = useState("")
-  const [waitForm, setWaitForm] = useState({ creator: "Cathy", account: "", platform: "Instagram", reel_number: 1, send_date: toDateStr(new Date()), send_time: "09:00", post_text: "", caption: "", video_link: "" })
+  const [newWaitModal, setNewWaitModal]   = useState(false)
+  const [activateModal, setActivateModal] = useState<{ accounts: Post[]; placeholder: string } | null>(null)
+  const [realUsername, setRealUsername]   = useState("")
+  const [waitForm, setWaitForm] = useState({ creator: "Cathy", account: "", platform: "Alle", reel_number: 1, send_date: toDateStr(new Date()), send_time: "09:00", caption: "", video_link: "" })
 
   const days    = Array.from({ length: 7 }, (_, i) => addDays(weekStart, i))
   const fromStr = toDateStr(weekStart)
@@ -112,53 +117,83 @@ export default function PostingPlaner() {
   async function toggleBereit(post: Post) {
     setTogglingId(post.id)
     const newStatus = post.status === "geplant" ? "bereit" : "geplant"
-    await fetch(`/api/posting-schedule/${post.id}`, {
+    const res = await fetch(`/api/posting-schedule/${post.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: newStatus }),
     })
-    setPosts(ps => ps.map(p => p.id === post.id ? { ...p, status: newStatus } : p))
+    if (res.ok) {
+      setPosts(ps => ps.map(p => p.id === post.id ? { ...p, status: newStatus } : p))
+    } else {
+      const d = await res.json().catch(() => ({}))
+      alert(`Fehler: ${d.error ?? "Status konnte nicht gespeichert werden"}`)
+    }
     setTogglingId(null)
   }
 
-  function openAdd(account: string, creator: string, platform: string, date: Date) {
-    const existing  = getCellPosts(account, date)
-    const usedReels = existing.map(p => p.reel_number)
-    const nextReel  = [1, 2, 3].find(r => !usedReels.includes(r))
-    if (!nextReel) return
-    setModal({ mode: "add", account, creator, platform, date: toDateStr(date), reelNumber: nextReel })
-    setForm({ post_text: "", caption: "", video_link: "", send_time: REEL_TIMES[nextReel], platform })
-  }
-
-  function openEdit(post: Post) {
-    setModal({ mode: "edit", post, account: post.account, creator: post.creator, platform: post.platform, date: post.send_date, reelNumber: post.reel_number })
-    setForm({ post_text: post.post_text, caption: post.caption, video_link: post.video_link, send_time: post.send_time.slice(0,5), platform: post.platform })
+  function openModal(account: string, creator: string, platform: string, date: Date) {
+    const dateStr = toDateStr(date)
+    const existing = [
+      ...getCellPosts(account, date),
+      ...waitingPosts.filter(p => p.account === account && p.send_date === dateStr),
+    ]
+    setReelForms([1, 2, 3].map(r => {
+      const post = existing.find(p => p.reel_number === r)
+      return post
+        ? { caption: post.caption ?? "", video_link: post.video_link ?? "", platform: post.platform, existingId: post.id, existingStatus: post.status }
+        : { caption: "", video_link: "", platform: "Alle" }
+    }))
+    setSaveError(null)
+    setModal({ account, creator, platform, date: dateStr })
   }
 
   async function handleSave() {
     if (!modal) return
     setSaving(true)
+    setSaveError(null)
     try {
-      if (modal.mode === "add") {
-        await fetch("/api/posting-schedule", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ creator: modal.creator, account: modal.account, platform: form.platform, reel_number: modal.reelNumber, send_date: modal.date, send_time: form.send_time, post_text: form.post_text, caption: form.caption, video_link: form.video_link, status: "geplant" }),
-        })
-      } else if (modal.post) {
-        await fetch(`/api/posting-schedule/${modal.post.id}`, {
-          method: "PATCH", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ platform: form.platform, send_time: form.send_time, post_text: form.post_text, caption: form.caption, video_link: form.video_link }),
-        })
+      const toAdd: Post[] = []
+      const toUpdate: { id: string; changes: Partial<Post> }[] = []
+      for (let i = 0; i < 3; i++) {
+        const rf = reelForms[i]
+        const reel_number = i + 1
+        const hasContent = rf.caption.trim() || rf.video_link.trim()
+        if (rf.existingId) {
+          const res = await fetch(`/api/posting-schedule/${rf.existingId}`, {
+            method: "PATCH", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ platform: rf.platform, caption: rf.caption, video_link: rf.video_link }),
+          })
+          if (!res.ok) { const d = await res.json(); setSaveError(d.error ?? "Fehler beim Speichern"); return }
+          toUpdate.push({ id: rf.existingId, changes: { platform: rf.platform, caption: rf.caption, video_link: rf.video_link } })
+        } else if (hasContent) {
+          const res = await fetch("/api/posting-schedule", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ creator: modal.creator, account: modal.account, platform: rf.platform, reel_number, send_date: modal.date, send_time: REEL_TIMES[reel_number], caption: rf.caption, video_link: rf.video_link, status: "geplant" }),
+          })
+          const data = await res.json()
+          if (!res.ok) { setSaveError(data.error ?? "Fehler beim Speichern"); return }
+          toAdd.push(data)
+        }
       }
-      setModal(null); await loadPosts()
+      setPosts(ps => {
+        const updated = ps.map(p => { const u = toUpdate.find(x => x.id === p.id); return u ? { ...p, ...u.changes } : p })
+        return [...updated, ...toAdd]
+      })
+      setModal(null)
     } finally { setSaving(false) }
   }
 
-  async function handleDelete() {
-    if (!modal?.post) return
+  async function handleDeleteReel(reelIndex: number) {
+    const rf = reelForms[reelIndex]
+    if (!rf.existingId) {
+      setReelForms(prev => prev.map((f, i) => i === reelIndex ? { ...f, caption: "", video_link: "" } : f))
+      return
+    }
     setSaving(true)
     try {
-      await fetch(`/api/posting-schedule/${modal.post.id}`, { method: "DELETE" })
-      setModal(null); await loadPosts()
+      await fetch(`/api/posting-schedule/${rf.existingId}`, { method: "DELETE" })
+      setPosts(ps => ps.filter(p => p.id !== rf.existingId))
+      setWaitingPosts(ps => ps.filter(p => p.id !== rf.existingId))
+      setReelForms(prev => prev.map((f, i) => i === reelIndex ? { caption: "", video_link: "", platform: modal?.platform ?? "Instagram" } : f))
     } finally { setSaving(false) }
   }
 
@@ -170,7 +205,7 @@ export default function PostingPlaner() {
         body: JSON.stringify({ ...waitForm, status: "wartet" }),
       })
       setNewWaitModal(false)
-      setWaitForm({ creator: "Cathy", account: "", platform: "Instagram", reel_number: 1, send_date: toDateStr(new Date()), send_time: "09:00", post_text: "", caption: "", video_link: "" })
+      setWaitForm({ creator: "Cathy", account: "", platform: "Instagram", reel_number: 1, send_date: toDateStr(new Date()), send_time: "09:00", caption: "", video_link: "" })
       await loadPosts()
     } finally { setSaving(false) }
   }
@@ -189,7 +224,6 @@ export default function PostingPlaner() {
     } finally { setSaving(false) }
   }
 
-  // Group waiting posts by placeholder account name
   const waitingGroups = waitingPosts.reduce<Record<string, Post[]>>((acc, p) => {
     if (!acc[p.account]) acc[p.account] = []
     acc[p.account].push(p)
@@ -203,7 +237,7 @@ export default function PostingPlaner() {
         <div>
           <h1 className="text-lg font-semibold text-white">Posting Planer</h1>
           <p className="text-sm text-gray-400">
-            Plane Posts vor · <span className="text-emerald-400 font-medium">Bereit</span> = Bot sendet ab 19:00 · <span className="text-orange-400 font-medium">Wartend</span> = Account noch unbekannt
+            Plane Posts vor · <span className="text-emerald-400 font-medium">Bereit</span> = Bot sendet ab 20:00 PH · Posts gehen live 23:00–01:00 · <span className="text-orange-400 font-medium">Wartend</span> = Account noch unbekannt
           </p>
         </div>
         <div className="flex gap-1.5">
@@ -258,12 +292,10 @@ export default function PostingPlaner() {
                           <p className={`text-xs ${CREATOR_TEXT[creator] ?? "text-gray-400"}`}>{creator} · {accountPosts.length} Post{accountPosts.length !== 1 ? "s" : ""} vorbereitet</p>
                         </div>
                       </div>
-                      <div className="flex gap-2">
-                        <button onClick={() => { setActivateModal({ accounts: accountPosts, placeholder }); setRealUsername("") }}
-                          className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm rounded-lg transition-colors font-medium">
-                          Account aktivieren →
-                        </button>
-                      </div>
+                      <button onClick={() => { setActivateModal({ accounts: accountPosts, placeholder }); setRealUsername("") }}
+                        className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 text-white text-sm rounded-lg transition-colors font-medium">
+                        Account aktivieren →
+                      </button>
                     </div>
                     <div className="divide-y divide-gray-700/50">
                       {sorted.map(post => (
@@ -271,11 +303,10 @@ export default function PostingPlaner() {
                           <div className="text-gray-400 text-sm w-20 shrink-0">{post.send_date}</div>
                           <div className="text-gray-400 text-xs w-12 shrink-0">R{post.reel_number}</div>
                           <div className="flex-1 min-w-0">
-                            <p className="text-gray-200 text-sm truncate">{post.post_text || <span className="text-gray-500 italic">Kein Text</span>}</p>
-                            {post.caption && <p className="text-gray-500 text-xs truncate mt-0.5">{post.caption}</p>}
+                            <p className="text-gray-200 text-sm truncate">{post.caption || <span className="text-gray-500 italic">Keine Caption</span>}</p>
                           </div>
-                          {post.video_link && <span className="text-xs text-blue-400 shrink-0">🎬 Video</span>}
-                          <button onClick={() => { openEdit(post); setActiveCreator("Alle") }} className="text-gray-500 hover:text-white text-xs px-2 py-1 rounded hover:bg-gray-700">Bearbeiten</button>
+                          <button onClick={() => openModal(post.account, post.creator, post.platform, new Date(post.send_date + "T00:00:00"))}
+                            className="text-gray-500 hover:text-white text-xs px-2 py-1 rounded hover:bg-gray-700">Bearbeiten</button>
                         </div>
                       ))}
                     </div>
@@ -326,12 +357,19 @@ export default function PostingPlaner() {
                   </tr>
                 </thead>
                 <tbody>
-                  {visibleAccounts.map(({ creator, account, platform }) => (
+                  {visibleAccounts.map(({ creator, account, platform }) => {
+                    const weekPostCount = days.reduce((n, d) => n + getCellPosts(account, d).length, 0)
+                    return (
                     <tr key={account} className="border-b border-gray-800/60 hover:bg-gray-800/10">
                       <td className="sticky left-0 z-10 bg-gray-900 px-4 py-2 border-r border-gray-800">
                         <div className="flex items-center gap-2">
                           <span className={`w-1.5 h-1.5 rounded-full shrink-0 ${CREATOR_COLORS[creator]}`}/>
-                          <span className="text-sm text-gray-200 font-medium truncate max-w-[120px]">@{account}</span>
+                          <span className="text-sm text-gray-200 font-medium truncate max-w-[100px]">@{account}</span>
+                          {weekPostCount > 0 && (
+                            <span className="text-xs font-semibold bg-emerald-900/60 text-emerald-300 border border-emerald-700/50 px-1.5 py-0.5 rounded-full shrink-0">
+                              {weekPostCount}
+                            </span>
+                          )}
                         </div>
                         {platform !== "Instagram" && <span className="text-xs text-gray-500 ml-4">{platform}</span>}
                       </td>
@@ -339,13 +377,13 @@ export default function PostingPlaner() {
                         const cellPosts = getCellPosts(account, day)
                         const canAdd    = cellPosts.length < 3
                         return (
-                          <td key={day.toISOString()} className={`px-2 py-2 align-top border-r border-gray-800 ${isToday(day) ? "bg-gray-800/10" : ""}`}>
+                          <td key={day.toISOString()} className={`px-2 py-2 align-top border-r border-gray-800 ${cellPosts.length > 0 ? "bg-emerald-950/20" : ""} ${isToday(day) ? "bg-gray-800/20" : ""}`}>
                             <div className="flex flex-col gap-1">
                               {cellPosts.map(post => (
                                 <div key={post.id} className={`w-full rounded text-xs border ${STATUS_STYLE[post.status]}`}>
-                                  <button className="w-full text-left px-2 py-1.5" onClick={() => openEdit(post)}>
+                                  <button className="w-full text-left px-2 py-1.5" onClick={() => openModal(account, creator, platform, day)}>
                                     <div className="font-medium">R{post.reel_number} · {post.send_time.slice(0,5)}</div>
-                                    {post.post_text && <div className="truncate mt-0.5 opacity-60" style={{ fontSize:"10px" }}>{post.post_text.slice(0,28)}</div>}
+                                    {post.caption && <div className="truncate mt-0.5 opacity-60" style={{ fontSize:"10px" }}>{post.caption.slice(0,28)}</div>}
                                   </button>
                                   {(post.status === "geplant" || post.status === "bereit") && (
                                     <button onClick={() => toggleBereit(post)} disabled={togglingId === post.id}
@@ -356,9 +394,9 @@ export default function PostingPlaner() {
                                 </div>
                               ))}
                               {canAdd && (
-                                <button onClick={() => openAdd(account, creator, platform, day)}
+                                <button onClick={() => openModal(account, creator, platform, day)}
                                   className="w-full text-xs text-gray-600 hover:text-gray-300 hover:bg-gray-800 rounded py-1.5 border border-dashed border-gray-800 hover:border-gray-600">
-                                  + R{cellPosts.length + 1}
+                                  +
                                 </button>
                               )}
                             </div>
@@ -366,7 +404,8 @@ export default function PostingPlaner() {
                         )
                       })}
                     </tr>
-                  ))}
+                  )
+                })}
                 </tbody>
               </table>
             )}
@@ -374,69 +413,82 @@ export default function PostingPlaner() {
         </>
       )}
 
-      {/* ── MODAL: Regular add/edit ── */}
+      {/* ── MODAL: All reels for account + date ── */}
       {modal && (
         <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={() => setModal(null)}>
-          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg shadow-2xl" onClick={e => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+          <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-lg shadow-2xl flex flex-col max-h-[85vh]" onClick={e => e.stopPropagation()}>
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
               <div>
-                <h2 className="text-white font-semibold">{modal.mode === "add" ? "Post hinzufügen" : "Post bearbeiten"}</h2>
-                <p className="text-xs text-gray-400 mt-0.5">@{modal.account} · R{modal.reelNumber} · {modal.date}</p>
+                <h2 className="text-white font-semibold">@{modal.account}</h2>
+                <p className="text-xs text-gray-400 mt-0.5">{modal.date} · R1 = 23:00 · R2 = 00:00 · R3 = 01:00 Philippines</p>
               </div>
               <button onClick={() => setModal(null)} className="text-gray-500 hover:text-white">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
               </button>
             </div>
-            <div className="px-5 py-4 space-y-4">
-              {modal.mode === "add" && (
-                <div>
-                  <label className="text-xs text-gray-400 font-medium block mb-1.5">Reel Nummer</label>
-                  <div className="flex gap-2">
-                    {[1,2,3].map(r => (
-                      <button key={r} onClick={() => { setModal(m => m ? {...m, reelNumber: r} : null); setForm(f => ({...f, send_time: REEL_TIMES[r]})) }}
-                        className={`flex-1 py-1.5 rounded-lg text-sm font-medium border transition-colors ${modal.reelNumber === r ? "bg-white text-gray-900 border-white" : "text-gray-400 border-gray-700 hover:border-gray-500"}`}>
-                        R{r}
-                      </button>
-                    ))}
+
+            <div className="overflow-y-auto flex-1 divide-y divide-gray-800">
+              {[0, 1, 2].map(i => {
+                const rf = reelForms[i]
+                const reel_number = i + 1
+                const time = REEL_TIMES[reel_number]
+                const isExisting = !!rf.existingId
+                const hasContent = rf.caption.trim() || rf.video_link.trim()
+                return (
+                  <div key={i} className="px-5 py-4 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-sm font-bold ${isExisting ? "text-emerald-400" : "text-gray-500"}`}>R{reel_number}</span>
+                        <span className="text-xs text-gray-500">{time} Uhr</span>
+                        {rf.existingStatus && (
+                          <span className={`text-xs px-1.5 py-0.5 rounded border ${STATUS_STYLE[rf.existingStatus] ?? ""}`}>
+                            {rf.existingStatus}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <select
+                          value={rf.platform}
+                          onChange={e => setReelForms(prev => prev.map((f, j) => j === i ? { ...f, platform: e.target.value } : f))}
+                          className="bg-gray-800 border border-gray-700 text-white text-xs rounded px-2 py-1 focus:outline-none focus:border-gray-500">
+                          <option value="Instagram">Instagram</option>
+                          <option value="Facebook">Facebook</option>
+                          <option value="Alle">Alle</option>
+                        </select>
+                        {(isExisting || hasContent) && (
+                          <button onClick={() => handleDeleteReel(i)} disabled={saving}
+                            className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-red-900/20 transition-colors">
+                            Löschen
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                    <textarea
+                      value={rf.caption}
+                      onChange={e => setReelForms(prev => prev.map((f, j) => j === i ? { ...f, caption: e.target.value } : f))}
+                      rows={3}
+                      placeholder={`Caption für R${reel_number}...`}
+                      className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 resize-none placeholder-gray-600"
+                    />
+                    <input
+                      type="url"
+                      value={rf.video_link}
+                      onChange={e => setReelForms(prev => prev.map((f, j) => j === i ? { ...f, video_link: e.target.value } : f))}
+                      placeholder="Video Link (Google Drive)..."
+                      className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 placeholder-gray-600"
+                    />
                   </div>
-                </div>
-              )}
-              <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Sendezeit (Info für Mitarbeiter)</label>
-                <input type="time" value={form.send_time} onChange={e => setForm(f => ({...f, send_time: e.target.value}))}
-                  className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500"/>
-              </div>
-              {modal.platform === "IG + FB" && (
-                <div>
-                  <label className="text-xs text-gray-400 font-medium block mb-1.5">Plattform</label>
-                  <select value={form.platform} onChange={e => setForm(f => ({...f, platform: e.target.value}))}
-                    className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500">
-                    <option value="Instagram">Instagram</option>
-                    <option value="Facebook">Facebook</option>
-                    <option value="IG + FB">Instagram + Facebook</option>
-                  </select>
-                </div>
-              )}
-              <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Post Text / Hook</label>
-                <textarea value={form.post_text} onChange={e => setForm(f => ({...f, post_text: e.target.value}))} rows={3}
-                  placeholder="Worum geht es in diesem Post?" className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 resize-none placeholder-gray-600"/>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Caption</label>
-                <textarea value={form.caption} onChange={e => setForm(f => ({...f, caption: e.target.value}))} rows={3}
-                  placeholder="Caption für Instagram/Facebook..." className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 resize-none placeholder-gray-600"/>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Video Link</label>
-                <input type="url" value={form.video_link} onChange={e => setForm(f => ({...f, video_link: e.target.value}))}
-                  placeholder="https://drive.google.com/..." className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 placeholder-gray-600"/>
-              </div>
+                )
+              })}
             </div>
-            <div className="px-5 py-4 border-t border-gray-800 flex items-center gap-3">
-              {modal.mode === "edit" && <button onClick={handleDelete} disabled={saving} className="text-sm text-red-400 hover:text-red-300 px-3 py-2 rounded-lg hover:bg-red-900/20">Löschen</button>}
-              <div className="flex-1"/>
-              <button onClick={() => setModal(null)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Abbrechen</button>
+
+            {saveError && (
+              <div className="mx-5 mb-2 px-3 py-2 bg-red-900/30 border border-red-700 rounded-lg text-red-300 text-xs shrink-0">
+                ❌ {saveError}
+              </div>
+            )}
+            <div className="px-5 py-4 border-t border-gray-800 flex items-center justify-end gap-3 shrink-0">
+              <button onClick={() => { setModal(null); setSaveError(null) }} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Abbrechen</button>
               <button onClick={handleSave} disabled={saving} className="px-4 py-2 bg-white text-gray-900 text-sm font-medium rounded-lg hover:bg-gray-100 disabled:opacity-50">
                 {saving ? "Speichert..." : "Speichern"}
               </button>
@@ -471,7 +523,7 @@ export default function PostingPlaner() {
                   <label className="text-xs text-gray-400 font-medium block mb-1.5">Plattform</label>
                   <select value={waitForm.platform} onChange={e => setWaitForm(f => ({...f, platform: e.target.value}))}
                     className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500">
-                    <option>Instagram</option><option>Facebook</option><option>IG + FB</option>
+                    <option>Instagram</option><option>Facebook</option><option>Alle</option>
                   </select>
                 </div>
               </div>
@@ -480,7 +532,7 @@ export default function PostingPlaner() {
                 <input value={waitForm.account} onChange={e => setWaitForm(f => ({...f, account: e.target.value}))}
                   placeholder="cathy-neues-branding-1" className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 placeholder-gray-600"/>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-400 font-medium block mb-1.5">Datum</label>
                   <input type="date" value={waitForm.send_date} onChange={e => setWaitForm(f => ({...f, send_date: e.target.value}))}
@@ -490,27 +542,17 @@ export default function PostingPlaner() {
                   <label className="text-xs text-gray-400 font-medium block mb-1.5">Reel #</label>
                   <select value={waitForm.reel_number} onChange={e => setWaitForm(f => ({...f, reel_number: Number(e.target.value), send_time: REEL_TIMES[Number(e.target.value)]}))}
                     className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500">
-                    <option value={1}>R1</option><option value={2}>R2</option><option value={3}>R3</option>
+                    <option value={1}>R1 · 23:00</option><option value={2}>R2 · 00:00</option><option value={3}>R3 · 01:00</option>
                   </select>
                 </div>
-                <div>
-                  <label className="text-xs text-gray-400 font-medium block mb-1.5">Zeit</label>
-                  <input type="time" value={waitForm.send_time} onChange={e => setWaitForm(f => ({...f, send_time: e.target.value}))}
-                    className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500"/>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Post Text / Hook</label>
-                <textarea value={waitForm.post_text} onChange={e => setWaitForm(f => ({...f, post_text: e.target.value}))} rows={2}
-                  placeholder="Worum geht es?" className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 resize-none placeholder-gray-600"/>
               </div>
               <div>
                 <label className="text-xs text-gray-400 font-medium block mb-1.5">Caption</label>
-                <textarea value={waitForm.caption} onChange={e => setWaitForm(f => ({...f, caption: e.target.value}))} rows={2}
+                <textarea value={waitForm.caption} onChange={e => setWaitForm(f => ({...f, caption: e.target.value}))} rows={3}
                   placeholder="Caption Text..." className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 resize-none placeholder-gray-600"/>
               </div>
               <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Video Link</label>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Video Link (Google Drive)</label>
                 <input type="url" value={waitForm.video_link} onChange={e => setWaitForm(f => ({...f, video_link: e.target.value}))}
                   placeholder="https://drive.google.com/..." className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 placeholder-gray-600"/>
               </div>
@@ -538,7 +580,7 @@ export default function PostingPlaner() {
               <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-300">
                 <p className="font-medium text-white mb-2">{activateModal.accounts.length} Posts werden aktualisiert:</p>
                 {activateModal.accounts.slice(0,5).map(p => (
-                  <div key={p.id} className="text-xs text-gray-400">R{p.reel_number} · {p.send_date} · {p.post_text?.slice(0,40) || "–"}</div>
+                  <div key={p.id} className="text-xs text-gray-400">R{p.reel_number} · {p.send_date} · {p.caption?.slice(0,40) || "–"}</div>
                 ))}
                 {activateModal.accounts.length > 5 && <div className="text-xs text-gray-500">+ {activateModal.accounts.length - 5} weitere...</div>}
               </div>
@@ -547,7 +589,7 @@ export default function PostingPlaner() {
                 <input value={realUsername} onChange={e => setRealUsername(e.target.value.replace(/^@/, ""))}
                   placeholder="cathynewaccount (ohne @)" className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-emerald-500 placeholder-gray-600"/>
               </div>
-              <p className="text-xs text-gray-500">Status aller Posts wird auf <span className="text-gray-300">Geplant</span> gesetzt. Du kannst sie danach manuell auf Bereit stellen.</p>
+              <p className="text-xs text-gray-500">Status aller Posts wird auf <span className="text-gray-300">Geplant</span> gesetzt.</p>
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex items-center justify-end gap-3">
               <button onClick={() => setActivateModal(null)} className="px-4 py-2 text-sm text-gray-400 hover:text-white">Abbrechen</button>

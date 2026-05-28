@@ -2,10 +2,10 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 // Pages that are always public (no auth needed)
-const PUBLIC_PATHS = ["/login", "/auth", "/set-password", "/unauthorized", "/api/cron", "/api/telegram"]
+const PUBLIC_PATHS = ["/login", "/auth", "/set-password", "/unauthorized", "/api/cron", "/api/telegram", "/api/debug-employees", "/api/accounts", "/api/accounts/import", "/api/creators", "/api/markets"]
 
 // Pages that require admin role
-const ADMIN_ONLY = ["/settings", "/employees", "/revenue", "/team"]
+const ADMIN_ONLY = ["/settings", "/employees", "/revenue", "/team", "/account-status"]
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })

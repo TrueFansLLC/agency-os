@@ -34,6 +34,7 @@ export async function PATCH(
   }
 
   if (body.username          !== undefined) updates.username          = body.username
+  if (body.fbUsername        !== undefined) updates.fb_username       = body.fbUsername || null
   if (body.status            !== undefined) updates.status            = body.status
   if (body.connectionStatus  !== undefined) updates.connection_status = body.connectionStatus
   if (body.dataSource        !== undefined) updates.data_source       = body.dataSource

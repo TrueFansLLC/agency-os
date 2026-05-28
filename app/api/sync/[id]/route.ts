@@ -20,54 +20,73 @@ export async function POST(
     return NextResponse.json({ error: "Account not found" }, { status: 404 })
   }
 
-  // Skip if already synced today (saves API credits)
   const today = new Date().toISOString().split("T")[0]
-  if (triggeredBy === "cron" && account.last_synced_at?.startsWith(today)) {
+
+  // Hard limit: never sync the same account twice in one day regardless of trigger.
+  // This protects the monthly API quota (3,000 requests = ~1 full sync/day for 30 accounts).
+  // Pass ?force=1 in the URL to override for a single account only.
+  const url = new URL(request.url)
+  const force = url.searchParams.get("force") === "1"
+  if (!force && account.last_synced_at?.startsWith(today)) {
     return NextResponse.json({ ok: true, skipped: true })
   }
 
   const handle = account.username.replace(/^@/, "")
-  const rapidApiKey = process.env.RAPIDAPI_KEY!
+  const rapidKey = process.env.RAPIDAPI_KEY!
 
   let igData: { followers: number; posts: number; views: number; externalId?: string } | null = null
   let fbFollowers = 0
   let fetchError: string | null = null
 
+  // ── Instagram sync via RapidAPI ─────────────────────────────────
   try {
-    const res = await fetch(
-      `https://instagram-scraper-api2.p.rapidapi.com/v1/info?username_or_id_or_url=${encodeURIComponent(handle)}`,
+    const profileRes = await fetch(
+      `https://instagram-scraper-20251.p.rapidapi.com/userinfo/?username_or_id=${encodeURIComponent(handle)}`,
       {
         headers: {
-          "x-rapidapi-key":  rapidApiKey,
-          "x-rapidapi-host": "instagram-scraper-api2.p.rapidapi.com",
+          "x-rapidapi-host": "instagram-scraper-20251.p.rapidapi.com",
+          "x-rapidapi-key": rapidKey,
         },
         cache: "no-store",
       }
     )
 
-    if (!res.ok) {
-      fetchError = `RapidAPI returned ${res.status}: ${await res.text()}`
+    if (!profileRes.ok) {
+      fetchError = `Instagram API returned ${profileRes.status}: ${await profileRes.text()}`
     } else {
-      const json = await res.json()
-      const user = json?.data ?? json
+      const profileJson = await profileRes.json()
+      const user = profileJson?.data ?? profileJson
 
-      type PostNode = { view_count?: number; video_view_count?: number; play_count?: number }
-      type Edge = { node?: PostNode }
+      const followers  = user?.follower_count ?? 0
+      const posts      = user?.media_count ?? 0
+      const externalId = user?.id?.toString() ?? account.external_instagram_id
 
-      const timelineEdges: Edge[] = user?.edge_owner_to_timeline_media?.edges ?? []
-      const felixEdges: Edge[]    = user?.edge_felix_video_timeline?.edges ?? []
-
-      const viewsFromEdges = (edges: Edge[]) =>
-        edges.reduce((sum, e) => sum + (e.node?.play_count ?? e.node?.view_count ?? e.node?.video_view_count ?? 0), 0)
-
-      const totalViews = viewsFromEdges(timelineEdges) + viewsFromEdges(felixEdges)
-
-      igData = {
-        followers:  user?.edge_followed_by?.count ?? user?.follower_count ?? 0,
-        posts:      user?.edge_owner_to_timeline_media?.count ?? user?.media_count ?? 0,
-        views:      totalViews,
-        externalId: user?.id?.toString() ?? account.external_instagram_id,
+      // Get reels for view count (non-fatal if it fails)
+      let totalViews = 0
+      try {
+        const reelsRes = await fetch(
+          `https://instagram-scraper-20251.p.rapidapi.com/userreels/?username_or_id=${encodeURIComponent(handle)}`,
+          {
+            headers: {
+              "x-rapidapi-host": "instagram-scraper-20251.p.rapidapi.com",
+              "x-rapidapi-key": rapidKey,
+            },
+            cache: "no-store",
+          }
+        )
+        if (reelsRes.ok) {
+          const reelsJson = await reelsRes.json()
+          const reels: any[] = reelsJson?.data?.items ?? reelsJson?.items ?? []
+          totalViews = reels.reduce(
+            (sum, reel) => sum + (reel?.play_count ?? reel?.view_count ?? 0),
+            0
+          )
+        }
+      } catch {
+        // views stay 0
       }
+
+      igData = { followers, posts, views: totalViews, externalId }
     }
   } catch (err: unknown) {
     const cause = (err as any)?.cause?.message ?? (err as any)?.cause?.code ?? ""
@@ -76,25 +95,27 @@ export async function POST(
       : String(err)
   }
 
-  // Optionally sync Facebook (non-fatal if it fails)
+  // ── Facebook Page sync via RapidAPI (non-fatal if it fails) ──────
   if (!fetchError && account.fb_username) {
     try {
+      const fbHandle = account.fb_username.replace(/^@/, "")
+      const fbUrl = fbHandle.startsWith("http") ? fbHandle : `https://www.facebook.com/${fbHandle}`
       const fbRes = await fetch(
-        `https://instagram-scraper-api2.p.rapidapi.com/v1/info?username_or_id_or_url=${encodeURIComponent(account.fb_username)}`,
+        `https://facebook-pages-scraper2.p.rapidapi.com/get_facebook_page_details?facebook_url=${encodeURIComponent(fbUrl)}`,
         {
           headers: {
-            "x-rapidapi-key":  rapidApiKey,
-            "x-rapidapi-host": "instagram-scraper-api2.p.rapidapi.com",
+            "x-rapidapi-host": "facebook-pages-scraper2.p.rapidapi.com",
+            "x-rapidapi-key": rapidKey,
           },
           cache: "no-store",
         }
       )
       if (fbRes.ok) {
         const fbJson = await fbRes.json()
-        fbFollowers = fbJson?.data?.follower_count ?? fbJson?.data?.fan_count ?? 0
+        fbFollowers = fbJson?.followers_count ?? fbJson?.fan_count ?? fbJson?.followers ?? 0
       }
     } catch {
-      // non-fatal
+      // non-fatal — FB failure doesn't block IG data
     }
   }
 
@@ -148,10 +169,11 @@ export async function POST(
   })
 
   return NextResponse.json({
-    ok:        true,
-    followers: igData.followers,
-    posts:     igData.posts,
-    views:     igData.views,
-    date:      today,
+    ok:          true,
+    followers:   igData.followers,
+    posts:       igData.posts,
+    views:       igData.views,
+    fbFollowers: fbFollowers,
+    date:        today,
   })
 }

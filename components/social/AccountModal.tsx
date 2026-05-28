@@ -42,6 +42,7 @@ export default function AccountModal({
 
   // ── Form state ────────────────────────────────────────────────────
   const [username,         setUsername]         = useState(account?.username ?? "")
+  const [fbUsername,       setFbUsername]       = useState(account?.fbUsername ?? "")
   const [creatorId,        setCreatorId]        = useState(account?.creatorId ?? creators[0]?.id ?? "")
   const [market,           setMarket]           = useState(account?.market ?? markets[0] ?? "")
   const [status,           setStatus]           = useState<AccountStatus>(account?.status ?? "active")
@@ -122,6 +123,7 @@ export default function AccountModal({
       ...(account ?? {}),
       id:               account?.id ?? `acc_${Date.now()}`,
       username:         rawUsername.startsWith("@") ? rawUsername : `@${rawUsername}`,
+      fbUsername:       fbUsername.trim() || undefined,
       creatorId:        finalCreator?.id ?? creatorId,
       creatorName:      finalCreator?.name ?? "",
       market:           market.trim(),
@@ -171,17 +173,30 @@ export default function AccountModal({
         {/* Form */}
         <form onSubmit={handleSubmit} className="px-6 py-5 space-y-5">
 
-          {/* Username */}
-          <div>
-            <label className={LABEL_CLS}>Instagram Username</label>
-            <input
-              type="text"
-              value={username}
-              onChange={e => setUsername(e.target.value)}
-              placeholder="@username"
-              className={FIELD_CLS}
-            />
-            {errors.username && <p className="text-red-400 text-xs mt-1">{errors.username}</p>}
+          {/* Instagram + Facebook usernames — 2 columns */}
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className={LABEL_CLS}>Instagram Username</label>
+              <input
+                type="text"
+                value={username}
+                onChange={e => setUsername(e.target.value)}
+                placeholder="@username"
+                className={FIELD_CLS}
+              />
+              {errors.username && <p className="text-red-400 text-xs mt-1">{errors.username}</p>}
+            </div>
+            <div>
+              <label className={LABEL_CLS}>Facebook Page (optional)</label>
+              <input
+                type="text"
+                value={fbUsername}
+                onChange={e => setFbUsername(e.target.value)}
+                placeholder="page-name"
+                className={FIELD_CLS}
+              />
+              <p className="text-gray-600 text-xs mt-1">facebook.com/<span className="text-gray-500">page-name</span></p>
+            </div>
           </div>
 
           {/* Creator */}

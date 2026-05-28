@@ -101,6 +101,7 @@ export async function POST(request: Request) {
     .from("instagram_accounts")
     .insert({
       username:          body.username,
+      fb_username:       body.fbUsername ?? null,
       creator_id:        creatorId,
       market_id:         marketId,
       status:            body.status ?? "active",

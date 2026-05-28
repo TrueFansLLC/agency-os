@@ -1,90 +1,83 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 
-function extractIgUsername(igLink: string | null): string | null {
-  if (!igLink) return null
-  const trimmed = igLink.trim()
-  // Already a plain username or @username
-  if (!trimmed.includes("/")) return trimmed.replace(/^@/, "")
-  // URL like https://www.instagram.com/username/ or https://instagram.com/username
-  try {
-    const url = new URL(trimmed.startsWith("http") ? trimmed : `https://${trimmed}`)
-    const parts = url.pathname.split("/").filter(Boolean)
-    return parts[0] ?? null
-  } catch {
-    return trimmed.replace(/^@/, "")
-  }
-}
-
 // POST /api/accounts/import
-// Reads all non-archived account_pairs and creates instagram_accounts
-// for any that have an ig_link and don't already exist.
-// Also updates fb_username when fb_link is set.
+// Reads all non-archived account_pairs and creates/updates instagram_accounts.
+// Uses ig_username directly (not ig_link which is the funnel/bio link).
 export async function POST() {
   const supabase = createServerClient()
 
-  // Load all non-archived pairs with a link
   const { data: pairs, error: pairsErr } = await supabase
     .from("account_pairs")
-    .select("id, creator, ig_link, fb_link")
-    .neq("archived", true)
+    .select("id, creator, ig_username, fb_username")
+    .eq("archived", false)
 
   if (pairsErr) return NextResponse.json({ error: pairsErr.message }, { status: 500 })
 
-  let created = 0
-  let updated = 0
+  const validPairs = (pairs ?? []).filter(p => (p.ig_username ?? "").trim())
 
-  for (const pair of pairs ?? []) {
-    const igUsername = extractIgUsername(pair.ig_link)
-    if (!igUsername) continue
+  if (!validPairs.length) return NextResponse.json({ ok: true, created: 0, updated: 0 })
 
-    const usernameNormalized = `@${igUsername.replace(/^@/, "")}`
+  // Collect unique creator names and upsert all at once
+  const creatorNames = [...new Set(validPairs.map(p => (p.creator ?? "").trim()).filter(Boolean))]
+  const creatorMap = new Map<string, string>() // name → id
 
-    // Find or create creator
+  if (creatorNames.length) {
+    const { data: creators } = await supabase
+      .from("creators")
+      .upsert(creatorNames.map(name => ({ name })), { onConflict: "name" })
+      .select("id, name")
+    for (const c of creators ?? []) creatorMap.set(c.name, c.id)
+  }
+
+  // Load all existing IG accounts in one query
+  const { data: existing } = await supabase
+    .from("instagram_accounts")
+    .select("id, username, fb_username")
+
+  const existingMap = new Map<string, { id: string; fb_username: string | null }>()
+  for (const acc of existing ?? []) existingMap.set(acc.username, acc)
+
+  const toInsert: object[] = []
+  const toUpdate: { id: string; fb_username: string }[] = []
+
+  for (const pair of validPairs) {
+    const rawUsername = pair.ig_username.trim()
+    const username = rawUsername.startsWith("@") ? rawUsername : `@${rawUsername}`
     const creatorName = (pair.creator ?? "").trim()
-    let creatorId: string | null = null
-    if (creatorName) {
-      const { data: creator } = await supabase
-        .from("creators")
-        .upsert({ name: creatorName }, { onConflict: "name" })
-        .select("id")
-        .single()
-      creatorId = creator?.id ?? null
-    }
+    const creatorId = creatorName ? (creatorMap.get(creatorName) ?? null) : null
+    const fbUsername = (pair.fb_username ?? "").trim() || null
 
-    // Check if this IG account already exists
-    const { data: existing } = await supabase
-      .from("instagram_accounts")
-      .select("id, fb_username")
-      .eq("username", usernameNormalized)
-      .maybeSingle()
-
-    const fbLink = pair.fb_link?.trim() || null
-
-    if (existing) {
-      // Update fb_username if we now have one and didn't before
-      if (fbLink && !existing.fb_username) {
-        await supabase
-          .from("instagram_accounts")
-          .update({ fb_username: fbLink })
-          .eq("id", existing.id)
-        updated++
+    const found = existingMap.get(username)
+    if (found) {
+      if (fbUsername && !found.fb_username) {
+        toUpdate.push({ id: found.id, fb_username: fbUsername })
       }
     } else {
-      // Create new account
-      await supabase.from("instagram_accounts").insert({
-        username:          usernameNormalized,
+      toInsert.push({
+        username,
         creator_id:        creatorId,
+        fb_username:       fbUsername,
         status:            "active",
         connection_status: "not_connected",
         data_source:       "instagram_api",
         performance_label: "New",
         notes:             "",
-        fb_username:       fbLink,
       })
-      created++
     }
   }
 
-  return NextResponse.json({ ok: true, created, updated })
+  // Batch insert new accounts
+  if (toInsert.length) {
+    await supabase.from("instagram_accounts").insert(toInsert)
+  }
+
+  // Update fb_username where missing (parallel)
+  await Promise.all(
+    toUpdate.map(u =>
+      supabase.from("instagram_accounts").update({ fb_username: u.fb_username }).eq("id", u.id)
+    )
+  )
+
+  return NextResponse.json({ ok: true, created: toInsert.length, updated: toUpdate.length })
 }

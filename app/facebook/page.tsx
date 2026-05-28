@@ -1,14 +1,14 @@
 "use client"
 
 import { useState, useEffect, useMemo, useCallback } from "react"
-import { Filters, InstagramAccount, AccountWithMetrics, Creator } from "@/types/instagram"
-import { filterAndCompute, computeKPIs } from "@/lib/metrics"
-import FilterBar    from "@/components/social/FilterBar"
-import KPICards     from "@/components/social/KPICards"
-import AccountTable from "@/components/social/AccountTable"
-import AccountModal from "@/components/social/AccountModal"
+import { FbFilters, FbAccount, FbAccountWithMetrics, Creator } from "@/types/facebook"
+import { filterAndComputeFb, computeFbKPIs } from "@/lib/fb-metrics"
+import FbFilterBar    from "@/components/facebook/FbFilterBar"
+import FbKPICards     from "@/components/facebook/FbKPICards"
+import FbAccountTable from "@/components/facebook/FbAccountTable"
+import FbAccountModal from "@/components/facebook/FbAccountModal"
 
-const DEFAULT_FILTERS: Filters = {
+const DEFAULT_FILTERS: FbFilters = {
   dateRange:    "30d",
   customFrom:   "",
   customTo:     "",
@@ -21,24 +21,24 @@ const DEFAULT_FILTERS: Filters = {
 type ModalState =
   | { open: false }
   | { open: true; mode: "add" }
-  | { open: true; mode: "edit"; account: AccountWithMetrics }
+  | { open: true; mode: "edit"; account: FbAccountWithMetrics }
 
-export default function SocialPage() {
-  const [accountList, setAccountList] = useState<InstagramAccount[]>([])
-  const [creatorList, setCreatorList] = useState<Creator[]>([])
-  const [marketList,  setMarketList]  = useState<string[]>(["Germany", "USA"])
-  const [isLoading,   setIsLoading]   = useState(true)
-  const [syncingId,   setSyncingId]   = useState<string | null>(null)
-  const [syncingAll,  setSyncingAll]  = useState(false)
+export default function FacebookPage() {
+  const [accountList,  setAccountList]  = useState<FbAccount[]>([])
+  const [creatorList,  setCreatorList]  = useState<Creator[]>([])
+  const [marketList,   setMarketList]   = useState<string[]>(["Germany", "USA"])
+  const [isLoading,    setIsLoading]    = useState(true)
+  const [syncingId,    setSyncingId]    = useState<string | null>(null)
+  const [syncingAll,   setSyncingAll]   = useState(false)
   const [syncProgress, setSyncProgress] = useState<{ done: number; total: number } | null>(null)
 
-  const [filters, setFilters] = useState<Filters>(DEFAULT_FILTERS)
+  const [filters, setFilters] = useState<FbFilters>(DEFAULT_FILTERS)
   const [modal,   setModal]   = useState<ModalState>({ open: false })
 
   const loadData = useCallback(async () => {
     try {
       const [accRes, creatRes, mktRes] = await Promise.all([
-        fetch("/api/accounts"),
+        fetch("/api/facebook-accounts"),
         fetch("/api/creators"),
         fetch("/api/markets"),
       ])
@@ -57,25 +57,12 @@ export default function SocialPage() {
     }
   }, [])
 
-  // Load data immediately, then trigger import in background
-  useEffect(() => {
-    loadData().then(() => {
-      // After data loads, sync from Account Tracker silently
-      fetch("/api/accounts/import", { method: "POST" })
-        .then(() => loadData())
-        .catch(() => {})
-    })
-  }, [loadData])
+  useEffect(() => { loadData() }, [loadData])
 
-  // ── Derived values ─────────────────────────────────────────────
-  const filtered    = useMemo(() => filterAndCompute(accountList, filters), [accountList, filters])
-  const kpis        = useMemo(() => computeKPIs(filtered), [filtered])
+  const filtered    = useMemo(() => filterAndComputeFb(accountList, filters), [accountList, filters])
+  const kpis        = useMemo(() => computeFbKPIs(filtered), [filtered])
   const hasAccounts = accountList.filter(a => !a.archived).length > 0
 
-  // ── Handlers ──────────────────────────────────────────────────
-  // Creator/market added inline in modal — update local list immediately
-  // so the dropdown reflects the new option before the account is saved.
-  // The DB record is created by the accounts API on submit.
   function handleAddCreator(name: string): Creator {
     const id = name.toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/(^_+|_+$)/g, "")
     const creator: Creator = { id, name }
@@ -91,9 +78,9 @@ export default function SocialPage() {
     return trimmed
   }
 
-  async function handleSubmit(account: InstagramAccount) {
+  async function handleSubmit(account: FbAccount) {
     const isEdit = modal.open && modal.mode === "edit"
-    const url    = isEdit ? `/api/accounts/${account.id}` : "/api/accounts"
+    const url    = isEdit ? `/api/facebook-accounts/${account.id}` : "/api/facebook-accounts"
     const method = isEdit ? "PATCH" : "POST"
 
     const res = await fetch(url, {
@@ -104,7 +91,7 @@ export default function SocialPage() {
 
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
-      alert(`Failed to save account: ${body.error ?? res.statusText}`)
+      alert(`Failed to save page: ${body.error ?? res.statusText}`)
       return
     }
 
@@ -113,7 +100,7 @@ export default function SocialPage() {
   }
 
   async function handleArchive(id: string) {
-    await fetch(`/api/accounts/${id}`, {
+    await fetch(`/api/facebook-accounts/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archived: true }),
@@ -121,11 +108,10 @@ export default function SocialPage() {
     await loadData()
   }
 
-  // Force=true bypasses the daily-once limit for a single account only
   async function handleSync(id: string, force = false) {
     setSyncingId(id)
     try {
-      const url = force ? `/api/sync/${id}?force=1` : `/api/sync/${id}`
+      const url = force ? `/api/facebook-sync/${id}?force=1` : `/api/facebook-sync/${id}`
       const res = await fetch(url, { method: "POST" })
       if (!res.ok) {
         const { error } = await res.json()
@@ -141,27 +127,22 @@ export default function SocialPage() {
 
   async function handleSyncAll() {
     const today = new Date().toISOString().split("T")[0]
-    const ids = accountList
+    const ids   = accountList
       .filter(a => !a.archived)
-      // Only sync accounts not yet synced today — protects monthly API quota
       .filter(a => !a.lastSyncedAt || !a.lastSyncedAt.startsWith(today))
       .map(a => a.id)
 
     const skipped = accountList.filter(a => !a.archived).length - ids.length
 
     if (!ids.length) {
-      alert(`All accounts already synced today. (${skipped} accounts — quota protected)`)
+      alert(`All pages already synced today. (${skipped} pages — quota protected)`)
       return
     }
 
     setSyncingAll(true)
     setSyncProgress({ done: 0, total: ids.length })
     for (let i = 0; i < ids.length; i++) {
-      try {
-        await fetch(`/api/sync/${ids[i]}`, { method: "POST" })
-      } catch {
-        // continue syncing others even if one fails
-      }
+      try { await fetch(`/api/facebook-sync/${ids[i]}`, { method: "POST" }) } catch { /* continue */ }
       setSyncProgress({ done: i + 1, total: ids.length })
     }
     await loadData()
@@ -169,14 +150,13 @@ export default function SocialPage() {
     setSyncProgress(null)
   }
 
-  // ── Render ────────────────────────────────────────────────────
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Social Media</h1>
+          <h1 className="text-2xl font-semibold text-white">Facebook</h1>
           <p className="text-gray-400 mt-1 text-sm">
-            Instagram performance across all creators and markets.
+            Facebook page performance across all creators and markets.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -201,20 +181,20 @@ export default function SocialPage() {
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
               <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
             </svg>
-            Add Account
+            Add Page
           </button>
         </div>
       </div>
 
-      <FilterBar filters={filters} onChange={setFilters} creators={creatorList} markets={marketList} />
-      <KPICards kpis={kpis} />
+      <FbFilterBar filters={filters} onChange={setFilters} creators={creatorList} markets={marketList} />
+      <FbKPICards  kpis={kpis} />
 
       {isLoading ? (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-12 text-center">
-          <p className="text-gray-500 text-sm">Loading accounts…</p>
+          <p className="text-gray-500 text-sm">Loading pages…</p>
         </div>
       ) : (
-        <AccountTable
+        <FbAccountTable
           accounts={filtered}
           hasAccounts={hasAccounts}
           syncingId={syncingId}
@@ -226,7 +206,7 @@ export default function SocialPage() {
       )}
 
       {modal.open && (
-        <AccountModal
+        <FbAccountModal
           mode={modal.mode}
           account={modal.mode === "edit" ? modal.account : undefined}
           creators={creatorList}
