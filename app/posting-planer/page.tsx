@@ -17,28 +17,16 @@ interface Post {
   status: "geplant" | "bereit" | "gesendet" | "gepostet" | "wartet"
 }
 
-const CREATOR_ACCOUNTS: Record<string, { account: string; platform: string }[]> = {
-  Cathy: [
-    { account: "cathyycamping",  platform: "Instagram" },
-    { account: "itscathylane",   platform: "Instagram" },
-    { account: "cathysfarm",     platform: "Instagram" },
-  ],
-  Neyla: [
-    { account: "neylasranch",      platform: "Instagram" },
-    { account: "neylaspeaks",      platform: "Instagram" },
-    { account: "neylaonthestreet", platform: "Instagram" },
-    { account: "neylaasks",        platform: "Instagram" },
-    { account: "neylaleftalone",   platform: "Instagram" },
-    { account: "christianneylaa",  platform: "Instagram" },
-  ],
-  Romina: [
-    { account: "rominahomealone",   platform: "Instagram" },
-    { account: "rominaspeaks",      platform: "Instagram" },
-    { account: "rominasfarm",       platform: "Instagram" },
-    { account: "rominaonthestreet", platform: "Instagram" },
-    { account: "domrominaa",        platform: "Instagram" },
-    { account: "rominascamp",       platform: "Alle" },
-  ],
+interface AccountPair {
+  id: string
+  creator: string
+  branding: string | null
+  ig_username: string | null
+  fb_username: string | null
+  ig_mitarbeiter: string | null
+  fb_mitarbeiter: string | null
+  ig_posting: boolean
+  fb_posting: boolean
 }
 
 const REEL_TIMES: Record<number, string> = { 1: "23:00", 2: "00:00", 3: "01:00" }
@@ -70,6 +58,8 @@ export default function PostingPlaner() {
   const [saving, setSaving]         = useState(false)
   const [togglingId, setTogglingId] = useState<string | null>(null)
   const [saveError, setSaveError]   = useState<string | null>(null)
+  const [accountPairs, setAccountPairs] = useState<AccountPair[]>([])
+  const [pairsError, setPairsError]     = useState(false)
 
   const [modal, setModal] = useState<{ account: string; creator: string; platform: string; date: string } | null>(null)
   const [reelForms, setReelForms] = useState<ReelForm[]>([
@@ -115,9 +105,25 @@ export default function PostingPlaner() {
 
   useEffect(() => { loadPosts() }, [loadPosts])
 
-  const visibleAccounts =
-    (activeCreator === "Alle" ? Object.keys(CREATOR_ACCOUNTS) : activeCreator === "Wartend" ? [] : [activeCreator])
-      .flatMap(c => CREATOR_ACCOUNTS[c].map(a => ({ creator: c, ...a })))
+  useEffect(() => {
+    fetch("/api/creator-accounts")
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data)) setAccountPairs(data)
+        else { setPairsError(true) }
+      })
+      .catch(() => setPairsError(true))
+  }, [])
+
+  const visibleAccounts = activeCreator === "Wartend" ? [] :
+    accountPairs
+      .filter(pair => activeCreator === "Alle" || pair.creator.toLowerCase() === activeCreator.toLowerCase())
+      .filter(pair => !!pair.ig_username)
+      .map(pair => ({
+        creator: pair.creator,
+        account: pair.ig_username!.replace(/^@/, ""),
+        platform: "Instagram" as string,
+      }))
 
   function getCellPosts(account: string, date: Date) {
     const d = toDateStr(date)
@@ -517,6 +523,11 @@ export default function PostingPlaner() {
 
           {/* Calendar */}
           <div className="flex-1 overflow-auto">
+            {pairsError && (
+              <div className="mx-6 mt-4 px-4 py-3 bg-red-900/30 border border-red-700 rounded-lg text-red-300 text-sm">
+                ⚠️ Accounts konnten nicht geladen werden. Seite neu laden.
+              </div>
+            )}
             {loading ? (
               <div className="flex items-center justify-center h-40 text-gray-500 text-sm">Lädt...</div>
             ) : (
