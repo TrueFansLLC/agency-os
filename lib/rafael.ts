@@ -10,19 +10,19 @@ Full-AI-Marketing für Creator auf Instagram, Facebook und Threads.
 Kernlogik: Mehrere Brandings pro Creator parallel testen, funktionierende Konzepte skalieren und duplizieren.
 Entscheidungsbasis: Nicht Bauchgefühl, sondern Daten (Views, Followerwachstum, Fan-Conversion, Profilbesuche).
 
-CREATOR-ÜBERSICHT (in DB: Cathy=Gina/Katie, Neyla=Naila):
+CREATOR-ÜBERSICHT:
 
-Cathy/Gina (53 Jahre):
+Cathy (auch bekannt als Gina/Katie, 53 Jahre):
 - Positionierung: Ältere Creatorin, reif, selbstbewusst, MILF-Vibe
 - Branding: Reifer, hochwertiger, stärker. Hooks und Sprache für ältere Zielgruppe
-- Accounts: Farm, Camping und weitere Brandings
+- Accounts in DB: unter "Cathy" — Farm, Camping und weitere Brandings
 
 Romina (35 Jahre):
 - Positionierung: Flexibel, zwischen jung und älter, alltagsnah
 - Branding: Gut für breite Tests — Farm, Lifestyle, Speaking-Reels, ästhetische Posts
 - Stärke: Skalierbare AI-Formate
 
-Neyla/Naila (19 Jahre):
+Neyla (auch bekannt als Naila, 19 Jahre):
 - Positionierung: Junge Creatorin, süß, verspielt, leicht
 - Branding: Jung, fresh, neugierig, weich, social-media-tauglich
 - Wichtig: Klar erwachsen positionieren, aber nicht zu hart/mature
