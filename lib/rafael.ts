@@ -105,6 +105,10 @@ WICHTIGE KPIs:
 === ENDE BUSINESS KONTEXT ===
 `
 
+export async function rafaelAlert(text: string) {
+  await rafaelSend(text)
+}
+
 async function rafaelSend(text: string) {
   if (!RAFAEL_TOKEN || !OWNER_CHAT_ID) return
   await fetch(`https://api.telegram.org/bot${RAFAEL_TOKEN}/sendMessage`, {

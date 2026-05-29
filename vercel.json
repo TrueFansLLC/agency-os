@@ -15,6 +15,10 @@
     {
       "path": "/api/cron/rafael-morning-report",
       "schedule": "0 1 * * *"
+    },
+    {
+      "path": "/api/cron/performance-check",
+      "schedule": "0 2 * * *"
     }
   ]
 }
