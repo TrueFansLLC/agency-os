@@ -19,6 +19,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, skipped: "not check hour", bangkokHour })
   }
 
+  // Temporarily disabled — redesign in progress
+  return NextResponse.json({ ok: true, skipped: "disabled" })
+
   const supabase = createServerClient()
   const today    = now.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok" })
   const todayStr = now.toISOString().slice(0, 10)
