@@ -12,3 +12,26 @@ body {
 body {
   font-family: var(--font-geist), Arial, Helvetica, sans-serif;
 }
+
+::selection {
+  background: #6366f1;
+  color: #fff;
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #374151;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #4b5563;
+}

@@ -43,10 +43,10 @@ export default function KPICards({ kpis }: { kpis: KPIs }) {
   return (
     <div className="grid grid-cols-2 xl:grid-cols-5 gap-4 mb-6">
       {cards.map(card => (
-        <div key={card.label} className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+        <div key={card.label} className="bg-gradient-to-br from-gray-900 to-gray-800/60 border border-gray-800 rounded-xl p-5 hover:border-gray-700 transition-all">
           <p className="text-gray-400 text-xs uppercase tracking-wider leading-none">{card.label}</p>
           <p
-            className={`text-2xl font-semibold mt-3 ${
+            className={`text-3xl font-semibold mt-3 tabular-nums ${
               card.growthColor
                 ? card.growthPositive
                   ? "text-green-400"

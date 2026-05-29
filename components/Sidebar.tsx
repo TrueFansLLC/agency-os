@@ -134,9 +134,18 @@ export default function Sidebar() {
 
   return (
     <aside className="w-60 min-h-screen bg-gray-950 border-r border-gray-800 flex flex-col shrink-0">
-      <div className="px-6 py-6 border-b border-gray-800">
-        <span className="text-white font-semibold text-lg tracking-tight">Agency OS</span>
-        <p className="text-gray-500 text-xs mt-0.5">Operations Dashboard</p>
+      <div className="px-5 py-5 border-b border-gray-800">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-600 flex items-center justify-center shrink-0">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="white">
+              <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/>
+            </svg>
+          </div>
+          <div>
+            <span className="text-white font-semibold text-sm tracking-tight">Agency OS</span>
+            <p className="text-gray-500 text-xs mt-0.5">Operations Dashboard</p>
+          </div>
+        </div>
       </div>
 
       <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
@@ -144,10 +153,12 @@ export default function Sidebar() {
           const active = pathname === item.href;
           return (
             <Link key={item.href} href={item.href}
-              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors ${
-                active ? "bg-gray-800 text-white" : "text-gray-400 hover:text-white hover:bg-gray-800/60"
+              className={`flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-all ${
+                active
+                  ? "bg-indigo-500/10 text-white shadow-[inset_2px_0_0_#6366f1]"
+                  : "text-gray-400 hover:text-white hover:bg-gray-800/60"
               }`}>
-              <span className={active ? "text-white" : "text-gray-500"}>{item.icon}</span>
+              <span className={active ? "text-indigo-400" : "text-gray-500"}>{item.icon}</span>
               {item.label}
             </Link>
           );
@@ -156,7 +167,7 @@ export default function Sidebar() {
 
       <div className="px-4 py-4 border-t border-gray-800">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-full bg-gray-700 flex items-center justify-center text-gray-300 text-sm font-medium shrink-0">
+          <div className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-600 to-violet-600 flex items-center justify-center text-white text-sm font-medium shrink-0">
             {userName.charAt(0).toUpperCase()}
           </div>
           <div className="flex-1 min-w-0">
