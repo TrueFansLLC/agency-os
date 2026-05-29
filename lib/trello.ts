@@ -19,6 +19,24 @@ async function getLists(): Promise<{ id: string; name: string }[]> {
   return res.ok ? res.json() : []
 }
 
+// ── Debug: test connection ────────────────────────────────────
+export async function testConnection(): Promise<string> {
+  if (!API_KEY) return "❌ TRELLO_API_KEY fehlt"
+  if (!TOKEN)   return "❌ TRELLO_TOKEN fehlt"
+  if (!BOARD_ID) return "❌ TRELLO_BOARD_ID fehlt"
+
+  const res  = await fetch(`${BASE}/boards/${BOARD_ID}?${AUTH}&fields=name`)
+  if (!res.ok) {
+    const err = await res.text()
+    return `❌ API Fehler (${res.status}): ${err.slice(0, 100)}`
+  }
+  const board = await res.json()
+  const lists = await getLists()
+  const cardsRes = await fetch(`${BASE}/boards/${BOARD_ID}/cards?${AUTH}&fields=name`)
+  const cards = cardsRes.ok ? await cardsRes.json() : []
+  return `✅ Verbunden\nBoard: ${board.name}\nListen: ${lists.map((l: {name: string}) => l.name).join(", ")}\nKarten: ${cards.length}`
+}
+
 // ── Get all cards with their list name ───────────────────────
 export async function getAllCards(): Promise<TrelloCard[]> {
   const [lists, cardsRes] = await Promise.all([
@@ -26,7 +44,7 @@ export async function getAllCards(): Promise<TrelloCard[]> {
     fetch(`${BASE}/boards/${BOARD_ID}/cards?${AUTH}&fields=name,desc,due,idList`),
   ])
   const cards = cardsRes.ok ? await cardsRes.json() : []
-  const listMap = Object.fromEntries(lists.map(l => [l.id, l.name]))
+  const listMap = Object.fromEntries(lists.map((l: {id: string; name: string}) => [l.id, l.name]))
 
   return cards.map((c: { id: string; name: string; desc: string; due: string | null; idList: string }) => ({
     id:   c.id,

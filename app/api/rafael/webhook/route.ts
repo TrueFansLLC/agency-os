@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
-import { getAllCards, createCard, formatCards } from "@/lib/trello"
+import { getAllCards, createCard, formatCards, testConnection } from "@/lib/trello"
 
 const TOKEN         = process.env.RAFAEL_BOT_TOKEN ?? ""
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
@@ -140,6 +140,12 @@ export async function POST(request: NextRequest) {
     await send(chatId,
       `👋 Hey ${firstName}! Ich bin <b>Rafael</b> — dein AI-Assistent.\n\nIch habe Zugriff auf:\n• Instagram & Facebook Accounts (Follower, Views)\n• Posts & Completion Rate\n• Mitarbeiter & Zuständigkeiten\n• Account-Probleme in Echtzeit\n\nStell mir einfach eine Frage auf Deutsch.\n\nBeispiele:\n• "Wie läuft der Betrieb heute?"\n• "Welcher Account hat die meisten Views diese Woche?"\n• "Was hat Peter heute gemeldet?"\n\nOder tippe /hilfe.`
     )
+    return NextResponse.json({ ok: true })
+  }
+
+  if (text.startsWith("/trello-debug")) {
+    const result = await testConnection()
+    await send(chatId, `🔧 Trello Debug:\n${result}`)
     return NextResponse.json({ ok: true })
   }
 
