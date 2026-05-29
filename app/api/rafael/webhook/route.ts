@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
+import { getAllCards, createCard, formatCards } from "@/lib/trello"
 
 const TOKEN         = process.env.RAFAEL_BOT_TOKEN ?? ""
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
@@ -188,10 +189,36 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  // Freitext → Claude mit vollem Kontext
+  // ── Trello: Tasks anzeigen ───────────────────────────────────
+  if (text.startsWith("/tasks") || /\b(tasks?|todos?|aufgaben|to.?dos?)\b/i.test(text) && /\b(zeig|was|alle|mein|offen)\b/i.test(text)) {
+    const cards = await getAllCards()
+    await send(chatId, `📋 <b>Agency Tasks</b>\n\n${formatCards(cards)}`)
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Trello: Task erstellen ───────────────────────────────────
+  if (/\b(füge?|add|erstell|neue?[rns]?|task\s+hinzu)\b/i.test(text) && /\b(task|aufgabe|to.?do)\b/i.test(text)) {
+    await send(chatId, "📝 Erstelle Task...")
+    const name = text
+      .replace(/füge?\s+(einen?\s+)?/i, "")
+      .replace(/\s*(als?\s+)?(neue?[rns]?\s+)?(task|aufgabe|to.?do)(\s+hinzu)?/i, "")
+      .replace(/^(task|aufgabe|to.?do)[:\s]+/i, "")
+      .trim()
+    if (name.length > 2) {
+      const ok = await createCard({ name, listName: "Offen" })
+      await send(chatId, ok ? `✅ Task erstellt: <b>${name}</b>` : "❌ Fehler beim Erstellen.")
+    } else {
+      await send(chatId, "Sag mir den Task-Namen, z.B.: <i>Füge Task hinzu: Website überarbeiten</i>")
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // Freitext → Claude mit vollem Kontext (inkl. Trello)
   if (text && !text.startsWith("/")) {
     await send(chatId, "🤔 Einen Moment...")
-    const answer = await askClaude(text, context)
+    const cards   = await getAllCards()
+    const trello  = `\nTRELLO TASKS:\n${formatCards(cards)}`
+    const answer  = await askClaude(text, context + trello)
     await send(chatId, answer)
     return NextResponse.json({ ok: true })
   }
