@@ -8,12 +8,19 @@ const CHECK_HOUR         = 9  // 09:00 Bangkok = 10:00 Philippines
 function statusIcon(s: string) { return s === "banned" ? "🔴" : s === "restricted" ? "🟠" : "🟢" }
 
 function buildKeyboard(accounts: { username: string; status: string }[], platform: "ig" | "fb") {
-  return accounts.map(acc => {
-    const name  = acc.username.slice(0, 25)
-    const icon  = acc.status === "banned" ? "🔴" : acc.status === "restricted" ? "🟠" : "✅"
-    const label = acc.status === "banned" ? "Banned" : acc.status === "restricted" ? "Restricted" : "Active"
-    return [{ text: `${icon}  ${name}  —  ${label}`, callback_data: `sc:${platform}:${name}` }]
-  })
+  const rows = []
+  for (const acc of accounts) {
+    const name = acc.username.slice(0, 22)
+    const s    = acc.status ?? "active"
+    const icon = s === "banned" ? "🔴" : s === "restricted" ? "🟠" : "🟢"
+    rows.push([{ text: `${icon} @${name}`, callback_data: `_` }])
+    rows.push([
+      { text: s === "active"     ? "✅ Active"     : "Active",     callback_data: `sc:${platform}:a:${name}` },
+      { text: s === "restricted" ? "🟠 Restricted" : "Restricted", callback_data: `sc:${platform}:r:${name}` },
+      { text: s === "banned"     ? "🔴 Banned"     : "Banned",     callback_data: `sc:${platform}:b:${name}` },
+    ])
+  }
+  return rows
 }
 
 export async function GET(request: Request) {
