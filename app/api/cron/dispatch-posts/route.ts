@@ -66,7 +66,7 @@ export async function GET(request: Request) {
     const { data: pair } = await supabase
       .from("account_pairs")
       .select("ig_mitarbeiter, fb_mitarbeiter, ig_username, fb_username, status")
-      .or(`ig_link.ilike.%${username}%,fb_link.ilike.%${username}%`)
+      .or(`ig_username.ilike.%${username}%,fb_username.ilike.%${username}%`)
       .maybeSingle()
 
     // Skip banned or restricted accounts — reschedule to tomorrow
