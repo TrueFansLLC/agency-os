@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
-import { getAllCards, createCard, formatCards, testConnection } from "@/lib/trello"
+// Trello removed — tasks now in Supabase
 
 const TOKEN         = process.env.RAFAEL_BOT_TOKEN ?? ""
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
@@ -143,12 +143,6 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  if (text.startsWith("/trello-debug")) {
-    const result = await testConnection()
-    await send(chatId, `🔧 Trello Debug:\n${result}`)
-    return NextResponse.json({ ok: true })
-  }
-
   if (text.startsWith("/hilfe")) {
     await send(chatId,
       `📋 <b>Rafael Befehle</b>\n\n/status — Account-Probleme\n/posts — Posts heute\n/mitarbeiter — Team-Übersicht\n/report — Tages-Report\n\n💬 Oder stell mir direkt eine Frage — ich nutze deine Live-Daten um zu antworten.`
@@ -195,36 +189,48 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  // ── Trello: Tasks anzeigen ───────────────────────────────────
-  if (text.startsWith("/tasks") || /\b(tasks?|todos?|aufgaben|to.?dos?)\b/i.test(text) && /\b(zeig|was|alle|mein|offen)\b/i.test(text)) {
-    const cards = await getAllCards()
-    await send(chatId, `📋 <b>Agency Tasks</b>\n\n${formatCards(cards)}`)
+  // ── Tasks anzeigen ───────────────────────────────────────────
+  if (text.startsWith("/tasks") || (/\b(tasks?|aufgaben|to.?dos?)\b/i.test(text) && /\b(zeig|was|alle|mein|offen)\b/i.test(text))) {
+    const { data: tasks } = await supabase.from("tasks").select("*").neq("status", "erledigt").order("created_at", { ascending: false })
+    if (!tasks?.length) {
+      await send(chatId, "📋 Keine offenen Tasks.")
+    } else {
+      const grouped: Record<string, typeof tasks> = {}
+      for (const t of tasks) {
+        if (!grouped[t.status]) grouped[t.status] = []
+        grouped[t.status].push(t)
+      }
+      const lines = Object.entries(grouped).map(([status, items]) =>
+        `<b>${status === "offen" ? "Offen" : "In Arbeit"} (${items.length})</b>\n` +
+        items.map(t => `• ${t.title}${t.assignee !== "Elijah" ? ` — ${t.assignee}` : ""}${t.due_date ? ` (bis ${t.due_date})` : ""}`).join("\n")
+      ).join("\n\n")
+      await send(chatId, `📋 <b>Tasks</b>\n\n${lines}`)
+    }
     return NextResponse.json({ ok: true })
   }
 
-  // ── Trello: Task erstellen ───────────────────────────────────
-  if (/\b(füge?|add|erstell|neue?[rns]?|task\s+hinzu)\b/i.test(text) && /\b(task|aufgabe|to.?do)\b/i.test(text)) {
-    await send(chatId, "📝 Erstelle Task...")
+  // ── Task erstellen ───────────────────────────────────────────
+  if (/\b(füge?|erstell|neue?[rns]?)\b/i.test(text) && /\b(task|aufgabe)\b/i.test(text)) {
     const name = text
       .replace(/füge?\s+(einen?\s+)?/i, "")
-      .replace(/\s*(als?\s+)?(neue?[rns]?\s+)?(task|aufgabe|to.?do)(\s+hinzu)?/i, "")
-      .replace(/^(task|aufgabe|to.?do)[:\s]+/i, "")
+      .replace(/\s*(neue?[rns]?\s+)?(task|aufgabe)(\s+hinzu)?/i, "")
+      .replace(/^(task|aufgabe)[:\s]+/i, "")
       .trim()
     if (name.length > 2) {
-      const ok = await createCard({ name, listName: "Offen" })
-      await send(chatId, ok ? `✅ Task erstellt: <b>${name}</b>` : "❌ Fehler beim Erstellen.")
+      await supabase.from("tasks").insert({ title: name, assignee: "Elijah", created_by: "Rafael via Telegram" })
+      await send(chatId, `✅ Task erstellt: <b>${name}</b>`)
     } else {
       await send(chatId, "Sag mir den Task-Namen, z.B.: <i>Füge Task hinzu: Website überarbeiten</i>")
     }
     return NextResponse.json({ ok: true })
   }
 
-  // Freitext → Claude mit vollem Kontext (inkl. Trello)
+  // Freitext → Claude mit vollem Kontext
   if (text && !text.startsWith("/")) {
     await send(chatId, "🤔 Einen Moment...")
-    const cards   = await getAllCards()
-    const trello  = `\nTRELLO TASKS:\n${formatCards(cards)}`
-    const answer  = await askClaude(text, context + trello)
+    const { data: tasks } = await supabase.from("tasks").select("title, assignee, status").neq("status", "erledigt").limit(20)
+    const taskCtx = tasks?.length ? `\nOFFENE TASKS:\n${tasks.map(t => `- ${t.title} (${t.assignee}, ${t.status})`).join("\n")}` : ""
+    const answer  = await askClaude(text, context + taskCtx)
     await send(chatId, answer)
     return NextResponse.json({ ok: true })
   }
