@@ -339,12 +339,13 @@ async function handleCallback(cb: {
     await editMessage(chatId, messageId, updatedText, [])
     await answerCallback(cb.id, "🟠 Account marked as restricted")
 
-    const { data: pairR } = await supabase.from("account_pairs").select("creator").or(`ig_username.ilike.${post.account},fb_username.ilike.${post.account}`).maybeSingle()
+    const { data: pairR } = await supabase.from("account_pairs").select("creator, ig_mitarbeiter, fb_mitarbeiter").or(`ig_username.ilike.${post.account},fb_username.ilike.${post.account}`).maybeSingle()
+    const employeeR = post.platform === "Facebook" ? (pairR?.fb_mitarbeiter ?? pairR?.ig_mitarbeiter) : (pairR?.ig_mitarbeiter ?? pairR?.fb_mitarbeiter)
     await alertAccountStatus({
       account:   post.account,
       platform:  post.platform,
       newStatus: "restricted",
-      employee:  cb.from.first_name ?? "Mitarbeiter",
+      employee:  employeeR ?? cb.from.first_name ?? "—",
       creator:   pairR?.creator ?? "—",
     })
   }
@@ -368,12 +369,13 @@ async function handleCallback(cb: {
     await editMessage(chatId, messageId, updatedText, [])
     await answerCallback(cb.id, "🔴 Account marked as banned")
 
-    const { data: pairB } = await supabase.from("account_pairs").select("creator").or(`ig_username.ilike.${post.account},fb_username.ilike.${post.account}`).maybeSingle()
+    const { data: pairB } = await supabase.from("account_pairs").select("creator, ig_mitarbeiter, fb_mitarbeiter").or(`ig_username.ilike.${post.account},fb_username.ilike.${post.account}`).maybeSingle()
+    const employeeB = post.platform === "Facebook" ? (pairB?.fb_mitarbeiter ?? pairB?.ig_mitarbeiter) : (pairB?.ig_mitarbeiter ?? pairB?.fb_mitarbeiter)
     await alertAccountStatus({
       account:   post.account,
       platform:  post.platform,
       newStatus: "banned",
-      employee:  cb.from.first_name ?? "Mitarbeiter",
+      employee:  employeeB ?? cb.from.first_name ?? "—",
       creator:   pairB?.creator ?? "—",
     })
   }
@@ -441,12 +443,13 @@ async function handleStatusCycle(cb: {
 
   if (newStatus === "banned" || newStatus === "restricted") {
     const usernameField = platform === "ig" ? "ig_username" : "fb_username"
-    const { data: pair } = await supabase.from("account_pairs").select("creator").ilike(usernameField, username).maybeSingle()
+    const workerField   = platform === "ig" ? "ig_mitarbeiter" : "fb_mitarbeiter"
+    const { data: pair } = await supabase.from("account_pairs").select("creator, ig_mitarbeiter, fb_mitarbeiter").ilike(usernameField, username).maybeSingle()
     await alertAccountStatus({
       account:   username,
       platform:  platform.toUpperCase(),
       newStatus,
-      employee:  cb.from.first_name ?? "Mitarbeiter",
+      employee:  (pair?.[workerField] as string | null) ?? "—",
       creator:   pair?.creator ?? "—",
     })
   }
