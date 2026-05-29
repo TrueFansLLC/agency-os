@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage, editMessage, answerCallback, editMessageKeyboard } from "@/lib/telegram"
+import { alertAccountStatus } from "@/lib/rafael"
 
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 
@@ -338,11 +339,20 @@ async function handleCallback(cb: {
     await editMessage(chatId, messageId, updatedText, [])
     await answerCallback(cb.id, "🟠 Account marked as restricted")
 
-    if (OWNER_CHAT_ID) {
-      await sendMessage(OWNER_CHAT_ID,
-        `🟠 <b>Account Restricted</b>\n\nAccount: <b>@${post.account}</b>\nEmployee: ${cb.from.first_name ?? post.employee_name}\nPlatform: ${post.platform}\n\nPosting has been paused. Future posts will be rescheduled automatically.`
-      )
-    }
+    const { count: postsToday } = await supabase
+      .from("posting_schedule")
+      .select("*", { count: "exact", head: true })
+      .eq("account", post.account)
+      .eq("send_date", new Date().toISOString().slice(0, 10))
+      .neq("status", "gepostet")
+
+    await alertAccountStatus({
+      account:    post.account,
+      platform:   post.platform,
+      newStatus:  "restricted",
+      employee:   cb.from.first_name ?? "Mitarbeiter",
+      postsToday: postsToday ?? 0,
+    })
   }
 
   // ── 🔴 Banned ───────────────────────────────────────────────────
@@ -364,11 +374,20 @@ async function handleCallback(cb: {
     await editMessage(chatId, messageId, updatedText, [])
     await answerCallback(cb.id, "🔴 Account marked as banned")
 
-    if (OWNER_CHAT_ID) {
-      await sendMessage(OWNER_CHAT_ID,
-        `🔴 <b>Account Banned!</b>\n\nAccount: <b>@${post.account}</b>\nEmployee: ${cb.from.first_name ?? post.employee_name}\nPlatform: ${post.platform}\n\nAll future posts for this account are paused until you reactivate it in the dashboard.`
-      )
-    }
+    const { count: postsTodayBanned } = await supabase
+      .from("posting_schedule")
+      .select("*", { count: "exact", head: true })
+      .eq("account", post.account)
+      .eq("send_date", new Date().toISOString().slice(0, 10))
+      .neq("status", "gepostet")
+
+    await alertAccountStatus({
+      account:    post.account,
+      platform:   post.platform,
+      newStatus:  "banned",
+      employee:   cb.from.first_name ?? "Mitarbeiter",
+      postsToday: postsTodayBanned ?? 0,
+    })
   }
 }
 
@@ -432,10 +451,21 @@ async function handleStatusCycle(cb: {
     }
   }
 
-  if ((newStatus === "banned" || newStatus === "restricted") && OWNER_CHAT_ID) {
-    await sendMessage(OWNER_CHAT_ID,
-      `${icon} <b>Account ${label}</b>\n\nAccount: <b>${username}</b>\nPlatform: ${platform.toUpperCase()}\nEmployee: ${cb.from.first_name ?? "unknown"}\n\nPosting paused automatically.`
-    )
+  if (newStatus === "banned" || newStatus === "restricted") {
+    const { count: postsLeft } = await supabase
+      .from("posting_schedule")
+      .select("*", { count: "exact", head: true })
+      .eq("account", username)
+      .eq("send_date", new Date().toISOString().slice(0, 10))
+      .neq("status", "gepostet")
+
+    await alertAccountStatus({
+      account:    username,
+      platform:   platform.toUpperCase(),
+      newStatus,
+      employee:   cb.from.first_name ?? "Mitarbeiter",
+      postsToday: postsLeft ?? 0,
+    })
   }
 }
 
