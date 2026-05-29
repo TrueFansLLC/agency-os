@@ -5,24 +5,6 @@ import { sendMessage } from "@/lib/telegram"
 const BANGKOK_UTC_OFFSET = 7
 const CHECK_HOUR         = 9  // 09:00 Bangkok = 10:00 Philippines
 
-function statusIcon(s: string) { return s === "banned" ? "🔴" : s === "restricted" ? "🟠" : "🟢" }
-
-function buildKeyboard(accounts: { username: string; status: string }[], platform: "ig" | "fb") {
-  const rows = []
-  for (const acc of accounts) {
-    const name = acc.username.slice(0, 22)
-    const s    = acc.status ?? "active"
-    const icon = s === "banned" ? "🔴" : s === "restricted" ? "🟠" : "🟢"
-    rows.push([{ text: `${icon} @${name}`, callback_data: `_` }])
-    rows.push([
-      { text: s === "active"     ? "✅ Active"     : "Active",     callback_data: `sc:${platform}:a:${name}` },
-      { text: s === "restricted" ? "🟠 Restricted" : "Restricted", callback_data: `sc:${platform}:r:${name}` },
-      { text: s === "banned"     ? "🔴 Banned"     : "Banned",     callback_data: `sc:${platform}:b:${name}` },
-    ])
-  }
-  return rows
-}
-
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization")
   const force      = new URL(request.url).searchParams.get("force") === "true"
@@ -37,9 +19,9 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, skipped: "not check hour", bangkokHour })
   }
 
-  const supabase  = createServerClient()
-  const today     = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok" })
-  const todayStr  = now.toISOString().slice(0, 10)
+  const supabase = createServerClient()
+  const today    = now.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok" })
+  const todayStr = now.toISOString().slice(0, 10)
 
   const { data: employees } = await supabase
     .from("employees")
@@ -62,37 +44,37 @@ export async function GET(request: Request) {
 
     const igAccounts = pairs
       .filter(p => p.ig_mitarbeiter?.toLowerCase().includes(empName.toLowerCase()) && p.ig_username)
-      .map(p => ({ username: p.ig_username!, status: p.status ?? "active" }))
+      .map(p => p.ig_username!)
 
     const fbAccounts = pairs
       .filter(p => p.fb_mitarbeiter?.toLowerCase().includes(empName.toLowerCase()) && p.fb_username)
-      .map(p => ({ username: p.fb_username!, status: p.status ?? "active" }))
+      .map(p => p.fb_username!)
 
     // ── IG status check ──────────────────────────────────────────
     if (emp.telegram_ig_status_thread_id && igAccounts.length > 0) {
-      const keyboard = buildKeyboard(igAccounts, "ig")
+      const names = igAccounts.map(u => `@${u}`).join("  ·  ")
+      const text  = `📊 <b>IG Daily Check — ${today}</b>\n\n${names}\n\n<i>Sind heute alle Accounts erreichbar?</i>`
+
       await sendMessage(
         emp.telegram_chat_id,
-        `📊 <b>Daily Account Check — ${today}</b>\n\nSet the current status for each account:`,
+        text,
         emp.telegram_ig_status_thread_id,
-        keyboard
+        [[
+          { text: "✅ Alle Active",     callback_data: "aa:ig" },
+          { text: "⚠️ Problem melden", callback_data: "pm:ig" },
+        ]]
       )
 
-      // Expected screenshots = non-banned accounts
-      const expectedIg = igAccounts.filter(a => a.status !== "banned").length
-      const screenshotMsg = buildScreenshotInstruction(igAccounts, "Instagram", expectedIg)
-      await sendMessage(emp.telegram_chat_id, screenshotMsg, emp.telegram_ig_status_thread_id)
-
-      // Store tracking record
+      const expected = igAccounts.length
       await supabase.from("daily_status_screenshots").upsert({
-        employee_name: empName,
-        date: todayStr,
-        platform: "ig",
-        expected_count: expectedIg,
+        employee_name:  empName,
+        date:           todayStr,
+        platform:       "ig",
+        expected_count: expected,
         received_count: 0,
-        check_sent_at: now.toISOString(),
-        chat_id: emp.telegram_chat_id,
-        thread_id: emp.telegram_ig_status_thread_id,
+        check_sent_at:  now.toISOString(),
+        chat_id:        emp.telegram_chat_id,
+        thread_id:      emp.telegram_ig_status_thread_id,
       }, { onConflict: "employee_name,date,platform" })
 
       sent++
@@ -100,27 +82,29 @@ export async function GET(request: Request) {
 
     // ── FB status check ──────────────────────────────────────────
     if (emp.telegram_fb_status_thread_id && fbAccounts.length > 0) {
-      const keyboard = buildKeyboard(fbAccounts, "fb")
+      const names = fbAccounts.map(u => `@${u}`).join("  ·  ")
+      const text  = `📊 <b>FB Daily Check — ${today}</b>\n\n${names}\n\n<i>Sind heute alle Accounts erreichbar?</i>`
+
       await sendMessage(
         emp.telegram_chat_id,
-        `📊 <b>Daily Account Check — ${today}</b>\n\nSet the current status for each account:`,
+        text,
         emp.telegram_fb_status_thread_id,
-        keyboard
+        [[
+          { text: "✅ Alle Active",     callback_data: "aa:fb" },
+          { text: "⚠️ Problem melden", callback_data: "pm:fb" },
+        ]]
       )
 
-      const expectedFb = fbAccounts.filter(a => a.status !== "banned").length
-      const screenshotMsg = buildScreenshotInstruction(fbAccounts, "Facebook", expectedFb)
-      await sendMessage(emp.telegram_chat_id, screenshotMsg, emp.telegram_fb_status_thread_id)
-
+      const expected = fbAccounts.length
       await supabase.from("daily_status_screenshots").upsert({
-        employee_name: empName,
-        date: todayStr,
-        platform: "fb",
-        expected_count: expectedFb,
+        employee_name:  empName,
+        date:           todayStr,
+        platform:       "fb",
+        expected_count: expected,
         received_count: 0,
-        check_sent_at: now.toISOString(),
-        chat_id: emp.telegram_chat_id,
-        thread_id: emp.telegram_fb_status_thread_id,
+        check_sent_at:  now.toISOString(),
+        chat_id:        emp.telegram_chat_id,
+        thread_id:      emp.telegram_fb_status_thread_id,
       }, { onConflict: "employee_name,date,platform" })
 
       sent++
@@ -128,22 +112,4 @@ export async function GET(request: Request) {
   }
 
   return NextResponse.json({ ok: true, sent })
-}
-
-function buildScreenshotInstruction(
-  accounts: { username: string; status: string }[],
-  platform: string,
-  expected: number
-) {
-  const activeList = accounts
-    .filter(a => a.status !== "banned")
-    .map(a => `• ${a.username}${a.status === "restricted" ? " 🟠" : ""}`)
-    .join("\n")
-
-  return [
-    `📸 <b>Now send screenshots for each active ${platform} account (${expected} expected):</b>\n`,
-    activeList,
-    `\n<b>One screenshot per account</b> showing the account is accessible.`,
-    `Screenshots must be sent in this topic within the next 2 hours.`,
-  ].join("\n")
 }

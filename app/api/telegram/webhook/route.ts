@@ -11,7 +11,11 @@ export async function POST(request: NextRequest) {
   // ── Inline button tap (callback_query) ──────────────────────────
   if (body.callback_query) {
     const data = body.callback_query.data ?? ""
-    if (data.startsWith("sc:")) {
+    if (data.startsWith("aa:")) {
+      await handleAllActive(body.callback_query)
+    } else if (data.startsWith("pm:")) {
+      await handleProblemReport(body.callback_query)
+    } else if (data.startsWith("sc:")) {
       await handleStatusCycle(body.callback_query)
     } else if (data !== "_") {
       await handleCallback(body.callback_query)
@@ -165,6 +169,110 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true })
+}
+
+async function handleAllActive(cb: {
+  id: string
+  data: string
+  from: { id: number; first_name?: string }
+  message: { message_id: number; chat: { id: number }; text?: string }
+}) {
+  const platform = cb.data.split(":")[1] as "ig" | "fb"
+  const chatId   = String(cb.message.chat.id)
+  const msgId    = cb.message.message_id
+  const now      = new Date().toISOString()
+  const time     = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })
+
+  await answerCallback(cb.id, "✅ Alle Active gespeichert!")
+
+  const supabase = createServerClient()
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("name")
+    .eq("telegram_chat_id", chatId)
+    .maybeSingle()
+
+  if (!emp?.name) return
+
+  const { data: pairs } = await supabase
+    .from("account_pairs")
+    .select("ig_username, fb_username, ig_mitarbeiter, fb_mitarbeiter")
+    .or(`ig_mitarbeiter.ilike.%${emp.name}%,fb_mitarbeiter.ilike.%${emp.name}%`)
+
+  const usernameField = platform === "ig" ? "ig_username" : "fb_username"
+  const workerField   = platform === "ig" ? "ig_mitarbeiter" : "fb_mitarbeiter"
+
+  const accounts = (pairs ?? [])
+    .filter(p => (p[workerField] as string | null)?.toLowerCase().includes(emp.name.toLowerCase()) && p[usernameField])
+    .map(p => p[usernameField] as string)
+
+  for (const username of accounts) {
+    await supabase
+      .from("account_pairs")
+      .update({ status: "active", status_since: now, status_note: `Alle Active by ${cb.from.first_name ?? emp.name}` })
+      .ilike(usernameField, username)
+  }
+
+  const names = accounts.map(u => `@${u}`).join("  ·  ")
+  await editMessage(chatId, msgId,
+    `✅ <b>Alle ${platform.toUpperCase()} Accounts Active</b>\n${cb.from.first_name ?? emp.name} · ${time} Bangkok\n\n${names}`,
+    []
+  )
+}
+
+async function handleProblemReport(cb: {
+  id: string
+  data: string
+  from: { id: number; first_name?: string }
+  message: { message_id: number; chat: { id: number }; text?: string; message_thread_id?: number }
+}) {
+  const platform  = cb.data.split(":")[1] as "ig" | "fb"
+  const chatId    = String(cb.message.chat.id)
+  const msgId     = cb.message.message_id
+  const threadId  = cb.message.message_thread_id
+
+  await answerCallback(cb.id, "⚠️ Accounts werden einzeln angezeigt...")
+
+  await editMessage(chatId, msgId,
+    (cb.message.text ?? "") + `\n\n⚠️ <b>${cb.from.first_name ?? "Mitarbeiter"} meldet ein Problem — Status wird pro Account gesetzt:</b>`,
+    []
+  )
+
+  const supabase = createServerClient()
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("name")
+    .eq("telegram_chat_id", chatId)
+    .maybeSingle()
+
+  if (!emp?.name) return
+
+  const { data: pairs } = await supabase
+    .from("account_pairs")
+    .select("ig_username, fb_username, ig_mitarbeiter, fb_mitarbeiter, status")
+    .or(`ig_mitarbeiter.ilike.%${emp.name}%,fb_mitarbeiter.ilike.%${emp.name}%`)
+
+  const usernameField = platform === "ig" ? "ig_username" : "fb_username"
+  const workerField   = platform === "ig" ? "ig_mitarbeiter" : "fb_mitarbeiter"
+
+  const accounts = (pairs ?? [])
+    .filter(p => (p[workerField] as string | null)?.toLowerCase().includes(emp.name.toLowerCase()) && p[usernameField])
+    .map(p => ({ username: p[usernameField] as string, status: p.status ?? "active" }))
+
+  for (const acc of accounts) {
+    const s    = acc.status
+    const icon = s === "banned" ? "🔴" : s === "restricted" ? "🟠" : "🟢"
+    const name = acc.username.slice(0, 22)
+    await sendMessage(chatId,
+      `${icon} <b>@${name}</b> — ${platform.toUpperCase()}`,
+      threadId,
+      [[
+        { text: s === "active"     ? "✅ Active"     : "Active",     callback_data: `sc:${platform}:a:${name}` },
+        { text: s === "restricted" ? "🟠 Restricted" : "Restricted", callback_data: `sc:${platform}:r:${name}` },
+        { text: s === "banned"     ? "🔴 Banned"     : "Banned",     callback_data: `sc:${platform}:b:${name}` },
+      ]]
+    )
+  }
 }
 
 async function handleCallback(cb: {
