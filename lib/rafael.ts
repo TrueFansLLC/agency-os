@@ -142,23 +142,14 @@ export async function alertAccountStatus(params: {
   platform:   string
   newStatus:  "restricted" | "banned"
   employee:   string
-  postsToday: number
+  creator:    string
 }) {
-  const { account, platform, newStatus, employee, postsToday } = params
+  const { account, platform, newStatus, employee, creator } = params
   const icon  = newStatus === "banned" ? "🔴" : "🟠"
-  const label = newStatus === "banned" ? "BANNED" : "RESTRICTED"
-
-  const context = `Account @${account} auf ${platform} wurde von Mitarbeiter ${employee} als ${label} gemeldet. Heute waren noch ${postsToday} Posts geplant für diesen Account.`
-  const analysis = await rafaelAI(
-    "Erkläre kurz was das bedeutet und was Elijah als nächstes tun sollte.",
-    context
-  )
+  const label = newStatus === "banned" ? "Banned" : "Restricted"
 
   await rafaelSend(
-    `${icon} <b>Alert: @${account} ${label}</b>\n` +
-    `Gemeldet von: ${employee} · ${platform}\n` +
-    `Posts heute betroffen: ${postsToday}\n\n` +
-    analysis
+    `${icon} <b>@${account}</b> — ${label}\nCreator: ${creator} · ${employee}`
   )
 }
 

@@ -339,19 +339,13 @@ async function handleCallback(cb: {
     await editMessage(chatId, messageId, updatedText, [])
     await answerCallback(cb.id, "🟠 Account marked as restricted")
 
-    const { count: postsToday } = await supabase
-      .from("posting_schedule")
-      .select("*", { count: "exact", head: true })
-      .eq("account", post.account)
-      .eq("send_date", new Date().toISOString().slice(0, 10))
-      .neq("status", "gepostet")
-
+    const { data: pairR } = await supabase.from("account_pairs").select("creator").or(`ig_username.ilike.${post.account},fb_username.ilike.${post.account}`).maybeSingle()
     await alertAccountStatus({
-      account:    post.account,
-      platform:   post.platform,
-      newStatus:  "restricted",
-      employee:   cb.from.first_name ?? "Mitarbeiter",
-      postsToday: postsToday ?? 0,
+      account:   post.account,
+      platform:  post.platform,
+      newStatus: "restricted",
+      employee:  cb.from.first_name ?? "Mitarbeiter",
+      creator:   pairR?.creator ?? "—",
     })
   }
 
@@ -374,19 +368,13 @@ async function handleCallback(cb: {
     await editMessage(chatId, messageId, updatedText, [])
     await answerCallback(cb.id, "🔴 Account marked as banned")
 
-    const { count: postsTodayBanned } = await supabase
-      .from("posting_schedule")
-      .select("*", { count: "exact", head: true })
-      .eq("account", post.account)
-      .eq("send_date", new Date().toISOString().slice(0, 10))
-      .neq("status", "gepostet")
-
+    const { data: pairB } = await supabase.from("account_pairs").select("creator").or(`ig_username.ilike.${post.account},fb_username.ilike.${post.account}`).maybeSingle()
     await alertAccountStatus({
-      account:    post.account,
-      platform:   post.platform,
-      newStatus:  "banned",
-      employee:   cb.from.first_name ?? "Mitarbeiter",
-      postsToday: postsTodayBanned ?? 0,
+      account:   post.account,
+      platform:  post.platform,
+      newStatus: "banned",
+      employee:  cb.from.first_name ?? "Mitarbeiter",
+      creator:   pairB?.creator ?? "—",
     })
   }
 }
@@ -452,19 +440,14 @@ async function handleStatusCycle(cb: {
   }
 
   if (newStatus === "banned" || newStatus === "restricted") {
-    const { count: postsLeft } = await supabase
-      .from("posting_schedule")
-      .select("*", { count: "exact", head: true })
-      .eq("account", username)
-      .eq("send_date", new Date().toISOString().slice(0, 10))
-      .neq("status", "gepostet")
-
+    const usernameField = platform === "ig" ? "ig_username" : "fb_username"
+    const { data: pair } = await supabase.from("account_pairs").select("creator").ilike(usernameField, username).maybeSingle()
     await alertAccountStatus({
-      account:    username,
-      platform:   platform.toUpperCase(),
+      account:   username,
+      platform:  platform.toUpperCase(),
       newStatus,
-      employee:   cb.from.first_name ?? "Mitarbeiter",
-      postsToday: postsLeft ?? 0,
+      employee:  cb.from.first_name ?? "Mitarbeiter",
+      creator:   pair?.creator ?? "—",
     })
   }
 }
