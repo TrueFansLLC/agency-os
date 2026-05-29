@@ -28,7 +28,7 @@ export async function GET(request: Request) {
     .select("name, telegram_chat_id, telegram_ig_status_thread_id, telegram_fb_status_thread_id")
     .not("telegram_chat_id", "is", null)
 
-  if (!employees?.length) return NextResponse.json({ ok: true, sent: 0 })
+  if (!employees || !employees.length) return NextResponse.json({ ok: true, sent: 0 })
 
   let sent = 0
 
@@ -40,7 +40,7 @@ export async function GET(request: Request) {
       .select("ig_username, fb_username, ig_mitarbeiter, fb_mitarbeiter")
       .or(`ig_mitarbeiter.ilike.%${empName}%,fb_mitarbeiter.ilike.%${empName}%`)
 
-    if (!pairs?.length) continue
+    if (!pairs || !pairs.length) continue
 
     const igAccounts = pairs
       .filter(p => p.ig_mitarbeiter?.toLowerCase().includes(empName.toLowerCase()) && p.ig_username)
