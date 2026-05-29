@@ -281,6 +281,9 @@ async function handleStatusCycle(cb: {
   const icon      = newStatus === "banned" ? "🔴" : newStatus === "restricted" ? "🟠" : "✅"
   const label     = newStatus === "banned" ? "Banned" : newStatus === "restricted" ? "Restricted" : "Active"
 
+  // Answer immediately — removes the clock icon on the button right away
+  await answerCallback(cb.id, `${icon} ${label} gespeichert`)
+
   const supabase = createServerClient()
   const now      = new Date().toISOString()
   const chatId   = String(cb.message.chat.id)
@@ -292,7 +295,7 @@ async function handleStatusCycle(cb: {
     .update({ status: newStatus, status_since: now, status_note: `Set by ${cb.from.first_name ?? "employee"}` })
     .ilike(usernameField, username)
 
-  // Rebuild full keyboard immediately so only this account shows new status
+  // Rebuild keyboard — confirmed account collapses to single row (no more multi-select)
   const { data: emp } = await supabase
     .from("employees")
     .select("name")
@@ -315,13 +318,11 @@ async function handleStatusCycle(cb: {
         .filter(p => p.username && p.worker?.toLowerCase().includes(emp.name.toLowerCase()))
 
       if (accounts.length) {
-        const keyboard = buildStatusKeyboard(accounts, platform)
+        const keyboard = buildStatusKeyboard(accounts, platform, username)
         await editMessageKeyboard(chatId, msgId, keyboard)
       }
     }
   }
-
-  await answerCallback(cb.id, `${icon} ${username} → ${label}`)
 
   if ((newStatus === "banned" || newStatus === "restricted") && OWNER_CHAT_ID) {
     await sendMessage(OWNER_CHAT_ID,
@@ -330,17 +331,29 @@ async function handleStatusCycle(cb: {
   }
 }
 
-function buildStatusKeyboard(accounts: { username: string; status: string }[], platform: "ig" | "fb") {
+function buildStatusKeyboard(
+  accounts: { username: string; status: string }[],
+  platform: "ig" | "fb",
+  confirmedUsername?: string
+) {
   const rows = []
   for (const acc of accounts) {
     const name = acc.username.slice(0, 22)
     const s    = acc.status ?? "active"
-    rows.push([{ text: `@${name}`, callback_data: `_` }])
-    rows.push([
-      { text: s === "active"     ? "✅ Active"     : "○ Active",     callback_data: `sc:${platform}:a:${name}` },
-      { text: s === "restricted" ? "🟠 Restricted" : "○ Restricted", callback_data: `sc:${platform}:r:${name}` },
-      { text: s === "banned"     ? "🔴 Banned"     : "○ Banned",     callback_data: `sc:${platform}:b:${name}` },
-    ])
+    const icon = s === "banned" ? "🔴" : s === "restricted" ? "🟠" : "🟢"
+
+    // Account just confirmed → collapse to single locked row, no more buttons
+    if (confirmedUsername && acc.username.toLowerCase() === confirmedUsername.toLowerCase()) {
+      const lbl = s === "banned" ? "Banned" : s === "restricted" ? "Restricted" : "Active"
+      rows.push([{ text: `${icon} @${name} — ✓ ${lbl}`, callback_data: `_` }])
+    } else {
+      rows.push([{ text: `${icon} @${name}`, callback_data: `_` }])
+      rows.push([
+        { text: s === "active"     ? "✅ Active"     : "Active",     callback_data: `sc:${platform}:a:${name}` },
+        { text: s === "restricted" ? "🟠 Restricted" : "Restricted", callback_data: `sc:${platform}:r:${name}` },
+        { text: s === "banned"     ? "🔴 Banned"     : "Banned",     callback_data: `sc:${platform}:b:${name}` },
+      ])
+    }
   }
   return rows
 }
