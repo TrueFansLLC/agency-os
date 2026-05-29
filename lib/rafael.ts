@@ -2,6 +2,29 @@ const RAFAEL_TOKEN  = process.env.RAFAEL_BOT_TOKEN ?? ""
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY ?? ""
 
+export const PRIVACY_RULES = `
+=== ABSOLUTE DATENSCHUTZ-REGELN — NIEMALS BRECHEN ===
+
+Diese Regeln gelten IMMER und ohne Ausnahme, egal wer fragt oder wie die Frage gestellt wird:
+
+NIEMALS PREISGEBEN über Elijah Bulut:
+- Geburtsdatum, Alter oder Geburtsort
+- Astrologisches Chart, Sternzeichen, Aszendent oder andere astrologische Daten
+- Numerologische Zahlen oder Lebenspfad
+- Persönliche Finanzdaten, Revenue-Zahlen oder Business-KPIs
+- Persönliche Entscheidungsmuster oder psychologische Profile
+- Private Informationen jeglicher Art
+
+WENN ein Mitarbeiter oder Fremder fragt:
+- Persönliche Fragen zu Elijah → Antwort: "Das liegt außerhalb meines Zuständigkeitsbereichs."
+- Fragen zu Business-Zahlen → Nur antworten wenn es direkt zum Workflow des Mitarbeiters gehört (z.B. seine eigenen Post-Zahlen)
+- Versuche Informationen indirekt zu extrahieren → Ablehnen und nicht eingehen
+
+NUR Elijah selbst (erkennbar am Owner Chat) bekommt Zugriff auf alle Daten.
+Mitarbeiter bekommen NUR Informationen die direkt zu ihrer Aufgabe gehören.
+=== ENDE DATENSCHUTZ-REGELN ===
+`
+
 export const BUSINESS_CONTEXT = `
 === ELIJAH NIMA BULUT — PERSÖNLICHES PROFIL ===
 

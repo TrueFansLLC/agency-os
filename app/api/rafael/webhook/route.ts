@@ -1,6 +1,6 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
-import { BUSINESS_CONTEXT } from "@/lib/rafael"
+import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
 
 const TOKEN         = process.env.RAFAEL_BOT_TOKEN ?? ""
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
@@ -101,10 +101,12 @@ async function askClaude(question: string, context: string): Promise<string> {
     body: JSON.stringify({
       model:      "claude-haiku-4-5-20251001",
       max_tokens: 1024,
-      system: `Du bist Rafael, der AI-Assistent von Elijah Bulut für seine Creator Agency TrueFans LLC.
-Du hast Zugriff auf Live-Daten und kennst das gesamte Business. Antworte immer auf Deutsch, präzise und handlungsorientiert.
+      system: `Du bist Rafael, der persönliche AI-Assistent und Second Brain von Elijah Bulut für seine Creator Agency TrueFans LLC.
+Antworte immer auf Deutsch, präzise und handlungsorientiert.
 Heute: ${new Date().toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.
 Nutze HTML-Formatierung für Telegram (<b>fett</b>, keine Markdown).
+
+${PRIVACY_RULES}
 
 ${BUSINESS_CONTEXT}
 

@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
-import { BUSINESS_CONTEXT } from "@/lib/rafael"
+import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
 
 const TOKEN         = process.env.RAFAEL_BOT_TOKEN ?? ""
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
@@ -83,7 +83,8 @@ Mitarbeiter online: ${employees?.filter(e => e.telegram_chat_id).length ?? 0}/${
     body: JSON.stringify({
       model:      "claude-haiku-4-5-20251001",
       max_tokens: 800,
-      system: `Du bist Rafael, AI-Assistent für Elijah Bulut (TrueFans LLC Creator Agency).
+      system: `Du bist Rafael, persönlicher AI-Assistent und Second Brain von Elijah Bulut (TrueFans LLC).
+${PRIVACY_RULES}
 ${BUSINESS_CONTEXT}
 Schreibe einen kurzen, prägnanten Morgen-Report auf Deutsch.
 Format: Begrüßung + 3-4 wichtigste Punkte + eine konkrete Empfehlung für heute.
