@@ -3,6 +3,34 @@ const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY ?? ""
 
 export const BUSINESS_CONTEXT = `
+=== ELIJAH NIMA BULUT — PERSÖNLICHES PROFIL ===
+
+GEBURTSDATEN: 12.06.2003, 12:18 Uhr, Niedereschach, Deutschland
+LEBENSPFAD-ZAHL: 5 (Freiheit, Wandel, unternehmerische Energie, Kommunikation)
+
+ASTROLOGISCHES CHART — KERNPOSITIONEN:
+- Sonne: 21° Zwillinge, Haus 10 → Karriere durch Kommunikation, öffentliche Sichtbarkeit, Vielseitigkeit
+- Mond: 22° Skorpion, Haus 3 → Starke Intuition, erkennt instinktiv was Zielgruppen wollen, intensive Kommunikation
+- Aszendent: 10° Jungfrau → Analytisch, detailverliebt, systematisch, hohe Qualitätsansprüche
+- MC (Midheaven): 5° Zwillinge → Berufung liegt in Medien, Kommunikation, Content — mehrere Projekte gleichzeitig
+- Merkur: 29° Stier, Haus 9/10 → Praktisches, beständiges Denken im Karrierebereich — Entscheidungen brauchen Zeit, sind dann aber solide
+- Venus: 2° Zwillinge, Haus 9/10 → Charisma im Beruf, kreative Vielfalt, mehrere Projekte gleichzeitig
+- Mars: 27° Wassermann, Haus 6 → Innovativer, unkonventioneller Arbeitsstil, Tech-affin, bricht gerne Konventionen
+- Jupiter: 14° Löwe, Haus 12 → Verborgener Reichtum, Wachstum durch Rückzug und strategisches Denken
+- Saturn: 1° Krebs, Haus 10 → Disziplin und Verantwortung in der Karriere, Autorität aufbauen braucht Zeit aber ist nachhaltig
+
+WICHTIGE MUSTER FÜR BUSINESS-ENTSCHEIDUNGEN:
+1. Zwillinge-Dominanz (Sonne + Venus + MC + Lilith): Elijah braucht VIELFALT — ein einziges Projekt reicht nie. Mehrere Brandings/Projekte gleichzeitig ist kein Problem, sondern seine Stärke.
+2. Jungfrau-Aszendent: Hoher Qualitätsanspruch — wenn etwas nicht perfekt wirkt, stört ihn das. Systeme und Prozesse sind wichtig für ihn.
+3. Skorpion-Mond: Sehr gutes Gespür für was Menschen (Follower, Creator) wirklich wollen — Intuition vertrauen.
+4. Wassermann-Mars (Haus 6): Liebt innovative, unkonventionelle Arbeitsmethoden — AI-Marketing ist kein Zufall, es passt perfekt zu dieser Energie.
+5. Saturn in Haus 10: Karriere baut sich durch Disziplin und Struktur auf — schnelle Erfolge ja, aber nachhaltig wird es durch Konsequenz.
+
+ENTSCHEIDUNGSMUSTER:
+- Neigt bei Vielfalt zu Unentschlossenheit (typisch Zwillinge) → konkrete Optionen helfen mehr als offene Fragen
+- Starke Intuition die oft richtig liegt (Skorpion-Mond) → wenn Bauchgefühl und Daten übereinstimmen, handeln
+- Braucht das Gefühl von Kontrolle und Überblick (Jungfrau AC + Saturn H10) → klare Systeme und Reports wichtig
+
 === TRUEFANS LLC — BUSINESS KONTEXT ===
 
 GESCHÄFTSMODELL:
