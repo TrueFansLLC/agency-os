@@ -12,7 +12,9 @@ export async function POST(request: NextRequest) {
   // ── Inline button tap (callback_query) ──────────────────────────
   if (body.callback_query) {
     const data = body.callback_query.data ?? ""
-    if (data.startsWith("aa:")) {
+    if (data.startsWith("task_done:") || data.startsWith("task_wip:")) {
+      await handleTaskCallback(body.callback_query)
+    } else if (data.startsWith("aa:")) {
       await handleAllActive(body.callback_query)
     } else if (data.startsWith("pm:")) {
       await handleProblemReport(body.callback_query)
@@ -378,6 +380,53 @@ async function handleCallback(cb: {
       employee:  employeeB ?? cb.from.first_name ?? "—",
       creator:   pairB?.creator ?? "—",
     })
+  }
+}
+
+async function handleTaskCallback(cb: {
+  id: string
+  from: { id: number; first_name?: string }
+  message: { message_id: number; chat: { id: number }; text?: string }
+  data: string
+}) {
+  const supabase  = createServerClient()
+  const chatId    = String(cb.message.chat.id)
+  const messageId = cb.message.message_id
+  const idx       = cb.data.indexOf(":")
+  const action    = cb.data.slice(0, idx)   // task_done | task_wip
+  const taskId    = cb.data.slice(idx + 1)  // UUID (no colons)
+  const who       = cb.from.first_name ?? "Mitarbeiter"
+
+  if (!taskId) { await answerCallback(cb.id); return }
+
+  const newStatus = action === "task_done" ? "erledigt" : "in_arbeit"
+
+  const { data: task, error } = await supabase
+    .from("tasks")
+    .update({ status: newStatus })
+    .eq("id", taskId)
+    .select("title")
+    .maybeSingle()
+
+  if (error || !task) {
+    await answerCallback(cb.id, "Task nicht gefunden.")
+    return
+  }
+
+  const sep      = "\n——————————————\n"
+  const baseText = (cb.message.text ?? "").split(sep)[0]
+
+  if (newStatus === "erledigt") {
+    const updatedText = baseText + sep + `✅ <b>Erledigt</b> von ${who}`
+    await editMessage(chatId, messageId, updatedText, [])  // remove buttons
+    await answerCallback(cb.id, "✅ Als erledigt markiert!")
+  } else {
+    const updatedText = baseText + sep + `🔄 <b>In Arbeit</b> — ${who}`
+    // keep a single ✅ Erledigt button so they can still finish it later
+    await editMessage(chatId, messageId, updatedText, [[
+      { text: "✅ Erledigt", callback_data: `task_done:${taskId}` },
+    ]])
+    await answerCallback(cb.id, "🔄 Als 'In Arbeit' markiert")
   }
 }
 
