@@ -94,6 +94,31 @@ export async function POST(request: NextRequest) {
             threadId
           )
         }
+      } else {
+        // ── Photo in a Weekly Stats topic → count toward this week ──
+        const { data: weekly } = await supabase
+          .from("weekly_stats_screenshots")
+          .select("id, received_count, expected_count")
+          .eq("chat_id", chatId)
+          .eq("thread_id", threadId)
+          .order("week_start", { ascending: false })
+          .limit(1)
+          .maybeSingle()
+
+        if (weekly) {
+          const newCount = weekly.received_count + 1
+          await supabase
+            .from("weekly_stats_screenshots")
+            .update({ received_count: newCount })
+            .eq("id", weekly.id)
+
+          if (newCount >= weekly.expected_count) {
+            await sendMessage(chatId,
+              `✅ <b>Alle Weekly-Stats-Screenshots erhalten!</b> (${newCount}/${weekly.expected_count})\n\nDanke — diese Woche komplett. 🎉`,
+              threadId
+            )
+          }
+        }
       }
     }
     return NextResponse.json({ ok: true })
