@@ -6,8 +6,8 @@ const BANGKOK_UTC_OFFSET = 7
 const CHECK_DAY          = 1  // Monday (cron fires Mon 02:00 UTC = 09:00 Bangkok)
 
 const INSTRUCTION =
-  "Bitte schick von <b>JEDEM</b> Account 4 Screenshots aus den Insights:\n" +
-  "  1️⃣ 7 Tage – Views\n  2️⃣ 7 Tage – Länder\n  3️⃣ 30 Tage – Views\n  4️⃣ 30 Tage – Länder"
+  "Please send 4 screenshots from Insights for <b>EACH</b> account:\n" +
+  "  1️⃣ 7 days – Views\n  2️⃣ 7 days – Countries\n  3️⃣ 30 days – Views\n  4️⃣ 30 days – Countries"
 
 export async function GET(request: Request) {
   const authHeader = request.headers.get("authorization")
@@ -63,7 +63,7 @@ export async function GET(request: Request) {
       const names    = igAccounts.map(u => `• @${u}`).join("\n")
       await sendMessage(
         emp.telegram_chat_id,
-        `📈 <b>Weekly Stats — Instagram</b>\n\n${INSTRUCTION}\n\n<b>Deine Accounts (${igAccounts.length}):</b>\n${names}\n\n➡️ Insgesamt erwartet: <b>${igAccounts.length} × 4 = ${expected}</b> Screenshots`,
+        `📈 <b>Weekly Stats — Instagram</b>\n\n${INSTRUCTION}\n\n<b>Your accounts (${igAccounts.length}):</b>\n${names}\n\n➡️ Total expected: <b>${igAccounts.length} × 4 = ${expected}</b> screenshots`,
         emp.telegram_ig_weekly_thread_id
       )
       await supabase.from("weekly_stats_screenshots").upsert({
@@ -85,7 +85,7 @@ export async function GET(request: Request) {
       const names    = fbAccounts.map(u => `• @${u}`).join("\n")
       await sendMessage(
         emp.telegram_chat_id,
-        `📈 <b>Weekly Stats — Facebook</b>\n\n${INSTRUCTION}\n\n<b>Deine Accounts (${fbAccounts.length}):</b>\n${names}\n\n➡️ Insgesamt erwartet: <b>${fbAccounts.length} × 4 = ${expected}</b> Screenshots`,
+        `📈 <b>Weekly Stats — Facebook</b>\n\n${INSTRUCTION}\n\n<b>Your accounts (${fbAccounts.length}):</b>\n${names}\n\n➡️ Total expected: <b>${fbAccounts.length} × 4 = ${expected}</b> screenshots`,
         emp.telegram_fb_weekly_thread_id
       )
       await supabase.from("weekly_stats_screenshots").upsert({

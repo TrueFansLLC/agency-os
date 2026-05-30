@@ -114,7 +114,7 @@ export async function POST(request: NextRequest) {
 
           if (newCount >= weekly.expected_count) {
             await sendMessage(chatId,
-              `✅ <b>Alle Weekly-Stats-Screenshots erhalten!</b> (${newCount}/${weekly.expected_count})\n\nDanke — diese Woche komplett. 🎉`,
+              `✅ <b>All weekly stats screenshots received!</b> (${newCount}/${weekly.expected_count})\n\nThanks — this week is complete. 🎉`,
               threadId
             )
           }
