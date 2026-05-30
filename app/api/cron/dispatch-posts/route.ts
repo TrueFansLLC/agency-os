@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     const username = post.account.replace(/^@/, "")
     const { data: pair } = await supabase
       .from("account_pairs")
-      .select("ig_mitarbeiter, fb_mitarbeiter, ig_username, fb_username, status")
+      .select("ig_mitarbeiter, fb_mitarbeiter, ig_username, fb_username, ig_posting, fb_posting, status")
       .or(`ig_username.ilike.%${username}%,fb_username.ilike.%${username}%`)
       .maybeSingle()
 
@@ -77,10 +77,13 @@ export async function GET(request: Request) {
       continue
     }
 
+    const igActive = pair?.ig_posting !== false
+    const fbActive = pair?.fb_posting !== false
+
     const employeesToNotify: EmpTask[] = []
-    if ((post.platform === "Instagram" || post.platform === "Alle") && pair?.ig_mitarbeiter)
+    if ((post.platform === "Instagram" || post.platform === "Alle") && pair?.ig_mitarbeiter && igActive)
       employeesToNotify.push({ name: pair.ig_mitarbeiter, platform: "Instagram" })
-    if ((post.platform === "Facebook" || post.platform === "Alle") && pair?.fb_mitarbeiter)
+    if ((post.platform === "Facebook" || post.platform === "Alle") && pair?.fb_mitarbeiter && fbActive)
       employeesToNotify.push({ name: pair.fb_mitarbeiter, platform: "Facebook" })
 
     if (force && employeesToNotify.length === 0) {

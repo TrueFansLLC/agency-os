@@ -60,6 +60,7 @@ export default function PostingPlaner() {
   const [saveError, setSaveError]   = useState<string | null>(null)
   const [accountPairs, setAccountPairs] = useState<AccountPair[]>([])
   const [pairsError, setPairsError]     = useState(false)
+  const [selectedBranding, setSelectedBranding] = useState("Alle")
 
   const [modal, setModal] = useState<{ account: string; creator: string; platform: string; date: string } | null>(null)
   const [reelForms, setReelForms] = useState<ReelForm[]>([
@@ -115,10 +116,19 @@ export default function PostingPlaner() {
       .catch(() => setPairsError(true))
   }, [])
 
+  const availableBrandings = activeCreator === "Wartend" || activeCreator === "Threads" ? [] :
+    ["Alle", ...Array.from(new Set(
+      accountPairs
+        .filter(pair => activeCreator === "Alle" || pair.creator.toLowerCase() === activeCreator.toLowerCase())
+        .map(pair => pair.branding)
+        .filter((b): b is string => !!b)
+    )).sort()]
+
   const visibleAccounts = activeCreator === "Wartend" ? [] :
     accountPairs
       .filter(pair => activeCreator === "Alle" || pair.creator.toLowerCase() === activeCreator.toLowerCase())
       .filter(pair => !!pair.ig_username)
+      .filter(pair => selectedBranding === "Alle" || pair.branding === selectedBranding)
       .map(pair => ({
         creator: pair.creator,
         account: pair.ig_username!.replace(/^@/, ""),
@@ -341,22 +351,34 @@ export default function PostingPlaner() {
             Plane Posts vor · <span className="text-emerald-400 font-medium">Bereit</span> = Bot sendet ab 20:00 PH · Posts gehen live 23:00–01:00 · <span className="text-orange-400 font-medium">Wartend</span> = Account noch unbekannt
           </p>
         </div>
-        <div className="flex gap-1.5">
-          {(["Alle", "Cathy", "Neyla", "Romina", "Wartend", "Threads"] as const).map(c => (
-            <button key={c} onClick={() => setActiveCreator(c)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors relative ${
-                activeCreator === c
-                  ? c === "Threads" ? "bg-violet-600 text-white" : "bg-white text-gray-900"
-                  : "text-gray-400 hover:text-white hover:bg-gray-800"
-              }`}>
-              {c}
-              {c === "Wartend" && Object.keys(waitingGroups).length > 0 && (
-                <span className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full text-white text-xs flex items-center justify-center">
-                  {Object.keys(waitingGroups).length}
-                </span>
-              )}
-            </button>
-          ))}
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex gap-1.5">
+            {(["Alle", "Cathy", "Neyla", "Romina", "Wartend", "Threads"] as const).map(c => (
+              <button key={c} onClick={() => { setActiveCreator(c); setSelectedBranding("Alle") }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors relative ${
+                  activeCreator === c
+                    ? c === "Threads" ? "bg-violet-600 text-white" : "bg-white text-gray-900"
+                    : "text-gray-400 hover:text-white hover:bg-gray-800"
+                }`}>
+                {c}
+                {c === "Wartend" && Object.keys(waitingGroups).length > 0 && (
+                  <span className="absolute -top-1 -right-1 w-4 h-4 bg-orange-500 rounded-full text-white text-xs flex items-center justify-center">
+                    {Object.keys(waitingGroups).length}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+          {availableBrandings.length > 1 && (
+            <select
+              value={selectedBranding}
+              onChange={e => setSelectedBranding(e.target.value)}
+              className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-1.5 focus:outline-none focus:border-gray-500">
+              {availableBrandings.map(b => (
+                <option key={b} value={b}>{b}</option>
+              ))}
+            </select>
+          )}
         </div>
       </div>
 
