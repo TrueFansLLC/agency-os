@@ -23,6 +23,10 @@
     {
       "path": "/api/cron/weekly-stats-check",
       "schedule": "0 2 * * 1"
+    },
+    {
+      "path": "/api/cron/salary-reminder",
+      "schedule": "0 2 1,14 * *"
     }
   ]
 }

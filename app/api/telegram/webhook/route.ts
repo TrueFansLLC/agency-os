@@ -14,6 +14,8 @@ export async function POST(request: NextRequest) {
     const data = body.callback_query.data ?? ""
     if (data.startsWith("task_done:") || data.startsWith("task_wip:")) {
       await handleTaskCallback(body.callback_query)
+    } else if (data.startsWith("sal:")) {
+      await handleSalary(body.callback_query)
     } else if (data.startsWith("aa:")) {
       await handleAllActive(body.callback_query)
     } else if (data.startsWith("pm:")) {
@@ -452,6 +454,45 @@ async function handleTaskCallback(cb: {
       { text: "✅ Erledigt", callback_data: `task_done:${taskId}` },
     ]])
     await answerCallback(cb.id, "🔄 Als 'In Arbeit' markiert")
+  }
+}
+
+async function handleSalary(cb: {
+  id: string
+  from: { id: number; first_name?: string }
+  message: { message_id: number; chat: { id: number }; text?: string }
+  data: string
+}) {
+  const supabase  = createServerClient()
+  const chatId    = String(cb.message.chat.id)
+  const messageId = cb.message.message_id
+  const action    = cb.data.split(":")[1]  // ok | no
+  const who       = cb.from.first_name ?? "employee"
+
+  // Resolve which employee this group belongs to
+  const { data: emp } = await supabase
+    .from("employees")
+    .select("name")
+    .eq("telegram_chat_id", chatId)
+    .maybeSingle()
+  const empName = emp?.name ?? who
+
+  const sep      = "\n——————————————\n"
+  const baseText = (cb.message.text ?? "").split(sep)[0]
+
+  if (action === "ok") {
+    await editMessage(chatId, messageId, baseText + sep + `✅ <b>Received</b> — ${who}`, [])
+    await answerCallback(cb.id, "✅ Thanks!")
+  } else if (action === "no") {
+    await editMessage(chatId, messageId, baseText + sep + `❌ <b>Not received yet</b> — reported by ${who}`, [])
+    await answerCallback(cb.id, "Got it — we'll look into it.")
+
+    if (OWNER_CHAT_ID) {
+      await sendMessage(
+        OWNER_CHAT_ID,
+        `⚠️ <b>Salary issue</b>\n\n<b>${empName}</b> (${who}) reported they have <b>not received</b> their salary yet.\n\nPlease check.`
+      )
+    }
   }
 }
 
