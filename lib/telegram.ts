@@ -95,5 +95,5 @@ export async function sendVideo(
   if (data.ok) return data.result.message_id
 
   // Fallback: send as link if direct video fails (e.g. Google Drive)
-  return sendMessage(chatId, `${caption}\n\n🎬 <a href="${videoUrl}">Video öffnen</a>`, threadId)
+  return sendMessage(chatId, `${caption}\n\n🎬 <a href="${videoUrl}">Open video</a>`, threadId)
 }

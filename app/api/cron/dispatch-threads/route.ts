@@ -40,17 +40,17 @@ export async function GET(request: Request) {
 
     const lines = [
       `📱 <b>Threads — @${account.username}</b>`,
-      `📅 Heute: <b>${batch.posts_count} Posts</b> (${label})`,
-      `🕘 Zeiten: ${timeStr} (Bangkok)`,
-      `📁 <a href="${batch.drive_folder_url}">Google Drive Ordner öffnen</a>`,
+      `📅 Today: <b>${batch.posts_count} Posts</b> (${label})`,
+      `🕘 Times: ${timeStr} (Bangkok)`,
+      `📁 <a href="${batch.drive_folder_url}">Open Google Drive folder</a>`,
       ``,
       `——————————————`,
-      `📌 Format: je 2 Bilder als Carousel + Caption`,
-      `💡 Caption: Viral-Post aus deiner FYP kopieren (1000+ Likes in 24h)`,
-      `⚠️ Jedes Bild nur <b>einmal</b> verwenden — nach dem Posten sofort löschen!`,
+      `📌 Format: 2 images each as a carousel + caption`,
+      `💡 Caption: copy a viral post from your FYP (1000+ likes in 24h)`,
+      `⚠️ Use each image only <b>once</b> — delete it immediately after posting!`,
       `——————————————`,
       ``,
-      `✅ Antworte mit <b>✅</b> wenn alle ${batch.posts_count} Posts gemacht wurden.`,
+      `✅ Reply with <b>✅</b> once all ${batch.posts_count} posts are done.`,
     ]
 
     const msgId = await sendMessage(
