@@ -26,7 +26,7 @@ export async function POST(request: Request) {
   // ── Synchronous run (good for text-to-image) ──────────────────────
   if (body.op === "sync") {
     const payload: Record<string, unknown> = { prompt: body.prompt, num_images: 1 }
-    if (body.model === "edit") payload.image_urls = [body.image_url]
+    if (body.model === "edit") payload.image_urls = (body.image_urls as string[]) ?? [body.image_url]
     const r    = await fetch(`https://fal.run/${model}`, { method: "POST", headers, body: JSON.stringify(payload) })
     const data = await r.json().catch(() => ({}))
     return NextResponse.json({ http: r.status, images: data.images ?? null, raw: data })
@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   // ── Queue: submit (good for slower edits) ─────────────────────────
   if (body.op === "submit") {
     const payload: Record<string, unknown> = { prompt: body.prompt, num_images: 1 }
-    if (body.model === "edit") payload.image_urls = [body.image_url]
+    if (body.model === "edit") payload.image_urls = (body.image_urls as string[]) ?? [body.image_url]
     const r    = await fetch(`https://queue.fal.run/${model}`, { method: "POST", headers, body: JSON.stringify(payload) })
     const data = await r.json().catch(() => ({}))
     return NextResponse.json({ http: r.status, request_id: data.request_id, status_url: data.status_url, response_url: data.response_url, raw: data })
