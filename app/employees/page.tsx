@@ -7,6 +7,7 @@ type Employee = {
   name: string
   devices: number
   notes: string | null
+  platform: string | null
   created_at: string
 }
 
@@ -156,6 +157,9 @@ export default function EmployeesPage() {
   const [modal,          setModal]          = useState<{ mode: "add" } | { mode: "edit"; employee: Employee } | null>(null)
   const [selected,       setSelected]       = useState<string | null>(null)
   const [archiveTarget,  setArchiveTarget]  = useState<Pair | null>(null)
+  const [platformTab,    setPlatformTab]    = useState<"ig_fb" | "threads">("ig_fb")
+
+  const visibleEmployees = employees.filter(e => (e.platform ?? "ig_fb") === platformTab)
 
   async function load() {
     setLoading(true)
@@ -203,7 +207,7 @@ export default function EmployeesPage() {
       })
     } else {
       await fetch("/api/employees", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, platform: platformTab }),
       })
     }
     setModal(null)
@@ -244,23 +248,35 @@ export default function EmployeesPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-semibold text-white">Employees</h1>
-          <p className="text-gray-500 text-sm mt-1">{employees.length} team members</p>
+          <p className="text-gray-500 text-sm mt-1">{visibleEmployees.length} team members</p>
         </div>
         <button onClick={() => setModal({ mode: "add" })}
           className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-100 text-gray-950 font-medium rounded-lg text-sm transition-colors">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Employee
+          {platformTab === "threads" ? "Add Threads Employee" : "Add Employee"}
         </button>
+      </div>
+
+      {/* Platform toggle */}
+      <div className="flex gap-2 mb-6">
+        {([["ig_fb", "Instagram & Facebook"], ["threads", "Threads"]] as const).map(([key, label]) => (
+          <button key={key} onClick={() => { setPlatformTab(key); setSelected(null) }}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              platformTab === key ? "bg-white text-gray-950" : "bg-gray-900 border border-gray-700 text-gray-400 hover:text-white"
+            }`}>
+            {label}
+          </button>
+        ))}
       </div>
 
       {loading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin w-6 h-6 border-2 border-gray-700 border-t-white rounded-full"/>
         </div>
-      ) : employees.length === 0 ? (
+      ) : visibleEmployees.length === 0 ? (
         <div className="border border-gray-800 border-dashed rounded-2xl p-20 text-center">
-          <p className="text-white font-medium mb-2">No employees yet</p>
-          <p className="text-gray-500 text-sm mb-6">Add your team members to track their accounts and capacity</p>
+          <p className="text-white font-medium mb-2">{platformTab === "threads" ? "Noch keine Threads-Mitarbeiter" : "No employees yet"}</p>
+          <p className="text-gray-500 text-sm mb-6">{platformTab === "threads" ? "Füge die Mitarbeiter hinzu, die deine Threads-Accounts betreuen" : "Add your team members to track their accounts and capacity"}</p>
           <button onClick={() => setModal({ mode: "add" })} className="px-5 py-2.5 bg-white text-gray-950 font-medium rounded-lg text-sm">
             Add Employee
           </button>
@@ -269,7 +285,7 @@ export default function EmployeesPage() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
           {/* Employee cards */}
           <div className="lg:col-span-1 space-y-3">
-            {employees.map(emp => {
+            {visibleEmployees.map(emp => {
               const stats    = getStats(emp.name)
               const capacity = emp.devices * 2
               const igUsed   = stats.igManaged
