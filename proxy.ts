@@ -2,7 +2,7 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 // Pages that are always public (no auth needed)
-const PUBLIC_PATHS = ["/login", "/auth", "/set-password", "/unauthorized", "/api/cron", "/api/telegram", "/api/rafael", "/api/accounts", "/api/accounts/import", "/api/creators", "/api/markets"]
+const PUBLIC_PATHS = ["/login", "/auth", "/set-password", "/unauthorized", "/api/cron", "/api/telegram", "/api/rafael/webhook", "/api/accounts", "/api/accounts/import", "/api/creators", "/api/markets", "/api/fal-test"]
 
 // Pages that require admin role
 const ADMIN_ONLY = ["/settings", "/employees", "/revenue", "/team", "/account-status"]
