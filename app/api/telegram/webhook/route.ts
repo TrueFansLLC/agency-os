@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
   if (text.startsWith("/chatid")) {
     const threadId = message.message_thread_id ?? null
     await sendMessage(chatId,
-      `🆔 <b>Chat ID:</b> <code>${chatId}</code>\n📌 <b>Thread ID:</b> <code>${threadId ?? "kein Topic"}</code>`,
+      `🆔 <b>Chat ID:</b> <code>${chatId}</code>\n📌 <b>Thread ID:</b> <code>${threadId ?? "no topic"}</code>`,
       threadId ?? undefined
     )
     return NextResponse.json({ ok: true })
