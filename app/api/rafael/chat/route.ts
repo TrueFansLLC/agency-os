@@ -1,19 +1,24 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
 import Anthropic from "@anthropic-ai/sdk"
 
-// Raphael's brain. Uses German full-text search over Elijah's saved knowledge,
-// then asks Claude to answer using that knowledge.
+// Rafael's brain (web chat). Same identity + business context as the Telegram Rafael
+// (shared from lib/rafael.ts), plus German full-text search over Elijah's saved knowledge.
 const MODEL = "claude-sonnet-4-6" // good balance of quality and cost for a personal assistant
 
-const SYSTEM_PROMPT = `Du bist Raphael, der persönliche "Second Brain"-Assistent von Elijah.
-Elijah führt eine Creator-/Social-Media-Agentur. Du antwortest immer auf Deutsch, klar und in einfacher Sprache.
+// Identical persona/knowledge to the Telegram Rafael, so it's one assistant in two places.
+const SYSTEM_PROMPT = `Du bist Rafael, der persönliche AI-Assistent und Second Brain von Elijah Bulut für seine Creator Agency TrueFans LLC.
+Du antwortest immer auf Deutsch, präzise, handlungsorientiert und in klarer Sprache.
 
 So arbeitest du:
-- Nutze in erster Linie das WISSEN, das dir aus Elijahs Wissensspeicher mitgegeben wird.
-- Wenn das Wissen die Frage beantwortet, stütze dich darauf und sag bei Bedarf, aus welchem Dokument es stammt.
-- Wenn der Wissensspeicher nichts Passendes enthält, hilf trotzdem so gut du kannst, aber sag ehrlich, dass du dazu (noch) nichts Gespeichertes hast.
-- Erfinde keine Fakten über Elijah oder seine Agentur.`
+- Nutze das WISSEN, das dir aus Elijahs Wissensspeicher mitgegeben wird, wenn es zur Frage passt.
+- Wenn etwas aus einem gespeicherten Dokument stammt, sag bei Bedarf, aus welchem.
+- Wenn der Wissensspeicher nichts Passendes enthält, hilf trotzdem mit deinem Business-Wissen — aber erfinde keine Fakten über Elijah oder seine Agentur.
+
+${PRIVACY_RULES}
+
+${BUSINESS_CONTEXT}`
 
 // Returns the saved messages history (most recent first → reversed to chronological).
 export async function GET() {
@@ -33,7 +38,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         error:
-          "Raphael ist noch nicht mit der Claude-API verbunden. Bitte den ANTHROPIC_API_KEY hinterlegen.",
+          "Rafael ist noch nicht mit der Claude-API verbunden. Bitte den ANTHROPIC_API_KEY hinterlegen.",
         needsKey: true,
       },
       { status: 503 }

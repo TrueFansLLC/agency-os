@@ -120,6 +120,29 @@ ${context}`,
   return data.content?.[0]?.text ?? "Fehler beim Abrufen der Antwort."
 }
 
+// Searches Elijah's fed-in knowledge (PDFs, YouTube transcripts, notes) so the
+// Telegram Rafael uses the same "second brain" memory as the web chat.
+async function searchKnowledge(
+  supabase: ReturnType<typeof createServerClient>,
+  query: string
+): Promise<string> {
+  try {
+    const { data: chunks } = await supabase
+      .from("raphael_chunks")
+      .select("content, document:raphael_documents(title)")
+      .textSearch("content_tsv", query, { type: "websearch", config: "german" })
+      .limit(6)
+    if (!chunks?.length) return ""
+    const blocks = chunks.map((c) => {
+      const doc = (c as { document?: { title?: string } | null }).document
+      return `[Aus: ${doc?.title ?? "Notiz"}]\n${(c as { content: string }).content}`
+    })
+    return `\n\nWISSENSSPEICHER (von Elijah gefüttert — Dokumente/Videos/Notizen):\n${blocks.join("\n\n")}`
+  } catch {
+    return ""
+  }
+}
+
 export async function POST(request: NextRequest) {
   const body = await request.json().catch(() => null)
   if (!body?.message) return NextResponse.json({ ok: true })
@@ -230,7 +253,8 @@ export async function POST(request: NextRequest) {
     await send(chatId, "🤔 Einen Moment...")
     const { data: tasks } = await supabase.from("tasks").select("title, assignee, status").neq("status", "erledigt").limit(20)
     const taskCtx = tasks?.length ? `\nOFFENE TASKS:\n${tasks.map(t => `- ${t.title} (${t.assignee}, ${t.status})`).join("\n")}` : ""
-    const answer  = await askClaude(text, context + taskCtx)
+    const knowledge = await searchKnowledge(supabase, text)
+    const answer  = await askClaude(text, context + taskCtx + knowledge)
     await send(chatId, answer)
     return NextResponse.json({ ok: true })
   }

@@ -52,10 +52,11 @@ async function extractPdfText(file: File): Promise<string> {
   return out.trim()
 }
 
-export default function RaphaelPage() {
+export default function RafaelPage() {
   const [tab, setTab] = useState<"note" | "youtube" | "pdf">("note")
   const [docs, setDocs] = useState<Doc[]>([])
   const [busy, setBusy] = useState(false)
+  const [seeding, setSeeding] = useState(false)
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null)
 
   // feed inputs
@@ -72,13 +73,13 @@ export default function RaphaelPage() {
   const chatEndRef = useRef<HTMLDivElement>(null)
 
   const loadDocs = useCallback(async () => {
-    const res = await fetch("/api/raphael/documents")
+    const res = await fetch("/api/rafael/documents")
     const data = await res.json()
     setDocs(Array.isArray(data.documents) ? data.documents : [])
   }, [])
 
   const loadMessages = useCallback(async () => {
-    const res = await fetch("/api/raphael/chat")
+    const res = await fetch("/api/rafael/chat")
     const data = await res.json()
     if (Array.isArray(data.messages)) {
       setMessages(data.messages.map((m: any) => ({ role: m.role, content: m.content })))
@@ -102,7 +103,7 @@ export default function RaphaelPage() {
   async function ingest(payload: Record<string, unknown>) {
     setBusy(true)
     try {
-      const res = await fetch("/api/raphael/ingest", {
+      const res = await fetch("/api/rafael/ingest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -112,7 +113,7 @@ export default function RaphaelPage() {
         showFlash("err", data.error ?? "Fehler beim Speichern.")
         return false
       }
-      showFlash("ok", `Gespeichert! Raphael hat ${data.chunks} Wissens-Häppchen dazugelernt.`)
+      showFlash("ok", `Gespeichert! Rafael hat ${data.chunks} Wissens-Häppchen dazugelernt.`)
       await loadDocs()
       return true
     } catch {
@@ -157,9 +158,28 @@ export default function RaphaelPage() {
     }
   }
 
+  async function seedSystem() {
+    if (!confirm("Rafael das komplette Agency-OS-Wissen einlesen? (Vorhandene System-Einträge werden aufgefrischt, deine eigenen Notizen/PDFs bleiben unberührt.)")) return
+    setSeeding(true)
+    try {
+      const res = await fetch("/api/rafael/seed", { method: "POST" })
+      const data = await res.json()
+      if (!res.ok) {
+        showFlash("err", data.error ?? "Import fehlgeschlagen.")
+        return
+      }
+      showFlash("ok", `Agency-Wissen importiert! Rafael kennt jetzt ${data.seeded} System-Themen.`)
+      await loadDocs()
+    } catch {
+      showFlash("err", "Netzwerkfehler beim Import.")
+    } finally {
+      setSeeding(false)
+    }
+  }
+
   async function deleteDoc(id: string) {
-    if (!confirm("Dieses Wissen wirklich löschen? Raphael vergisst es dann.")) return
-    await fetch(`/api/raphael/documents?id=${id}`, { method: "DELETE" })
+    if (!confirm("Dieses Wissen wirklich löschen? Rafael vergisst es dann.")) return
+    await fetch(`/api/rafael/documents?id=${id}`, { method: "DELETE" })
     await loadDocs()
   }
 
@@ -170,7 +190,7 @@ export default function RaphaelPage() {
     setMessages((m) => [...m, { role: "user", content: text }])
     setSending(true)
     try {
-      const res = await fetch("/api/raphael/chat", {
+      const res = await fetch("/api/rafael/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ message: text }),
@@ -193,7 +213,7 @@ export default function RaphaelPage() {
   return (
     <div className="p-8 max-w-6xl mx-auto">
       <div className="mb-6">
-        <h1 className="text-2xl font-semibold text-white flex items-center gap-2">🧠 Raphael</h1>
+        <h1 className="text-2xl font-semibold text-white flex items-center gap-2">🧠 Rafael</h1>
         <p className="text-gray-400 mt-1 text-sm">
           Dein Second Brain. Füttere ihn mit Wissen — er merkt sich alles und beantwortet deine Fragen.
         </p>
@@ -241,7 +261,7 @@ export default function RaphaelPage() {
                 <textarea
                   value={noteText}
                   onChange={(e) => setNoteText(e.target.value)}
-                  placeholder="Schreib oder füg hier alles ein, was Raphael wissen soll — über dich, deine Agentur, Ideen, Notizen…"
+                  placeholder="Schreib oder füg hier alles ein, was Rafael wissen soll — über dich, deine Agentur, Ideen, Notizen…"
                   rows={6}
                   className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 resize-y"
                 />
@@ -264,7 +284,7 @@ export default function RaphaelPage() {
                   className="w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
                 />
                 <p className="text-gray-500 text-xs">
-                  Raphael holt sich das Transkript (den gesprochenen Text) automatisch. Klappt nur bei Videos mit Untertiteln.
+                  Rafael holt sich das Transkript (den gesprochenen Text) automatisch. Klappt nur bei Videos mit Untertiteln.
                 </p>
                 <button
                   onClick={saveYoutube}
@@ -297,9 +317,19 @@ export default function RaphaelPage() {
           </div>
 
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-            <h2 className="text-white font-medium mb-3">
-              Raphaels Wissen <span className="text-gray-500 font-normal">({docs.length})</span>
-            </h2>
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="text-white font-medium">
+                Rafaels Wissen <span className="text-gray-500 font-normal">({docs.length})</span>
+              </h2>
+              <button
+                onClick={seedSystem}
+                disabled={seeding}
+                title="Lädt Rafael das komplette Wissen über dein Agency OS ein (Seiten, Posting-System, Threads, Mitarbeiter, Telegram). Jederzeit wiederholbar."
+                className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+              >
+                {seeding ? "Importiere…" : "📚 Agency-Wissen importieren"}
+              </button>
+            </div>
             {docs.length === 0 ? (
               <p className="text-gray-500 text-sm">Noch nichts gespeichert. Füttere ihn oben mit dem ersten Wissen.</p>
             ) : (
@@ -333,19 +363,19 @@ export default function RaphaelPage() {
         {/* RIGHT: chat */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl flex flex-col h-[640px]">
           <div className="px-5 py-3 border-b border-gray-800">
-            <h2 className="text-white font-medium">Chat mit Raphael</h2>
+            <h2 className="text-white font-medium">Chat mit Rafael</h2>
           </div>
 
           {keyMissing && (
             <div className="mx-5 mt-4 rounded-lg px-4 py-3 text-sm bg-amber-500/10 text-amber-300 border border-amber-500/20">
-              Raphael ist noch nicht mit der Claude-API verbunden. Sobald der API-Schlüssel hinterlegt ist, kann er antworten.
+              Rafael ist noch nicht mit der Claude-API verbunden. Sobald der API-Schlüssel hinterlegt ist, kann er antworten.
             </div>
           )}
 
           <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
             {messages.length === 0 && (
               <p className="text-gray-600 text-sm">
-                Stell Raphael eine Frage. Er nutzt dein gespeichertes Wissen, um zu antworten.
+                Stell Rafael eine Frage. Er nutzt dein gespeichertes Wissen, um zu antworten.
               </p>
             )}
             {messages.map((m, i) => (
@@ -363,7 +393,7 @@ export default function RaphaelPage() {
             ))}
             {sending && (
               <div className="flex justify-start">
-                <div className="bg-gray-800 text-gray-400 rounded-2xl px-4 py-2.5 text-sm">Raphael denkt nach…</div>
+                <div className="bg-gray-800 text-gray-400 rounded-2xl px-4 py-2.5 text-sm">Rafael denkt nach…</div>
               </div>
             )}
             <div ref={chatEndRef} />
@@ -379,7 +409,7 @@ export default function RaphaelPage() {
                   send()
                 }
               }}
-              placeholder="Frag Raphael etwas…"
+              placeholder="Frag Rafael etwas…"
               className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
             />
             <button
