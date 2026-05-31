@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
         .eq("id", sentBatch.id)
 
       await sendMessage(chatId,
-        `✅ <b>${sentBatch.posts_count} Threads Posts</b> für @${sentBatch.account?.username} bestätigt!\n\n🗑️ Jetzt alle <b>${sentBatch.images_count} Bilder</b> aus dem Drive-Ordner löschen.\n\nAntworte mit <b>✅✅</b> wenn alle Bilder gelöscht sind.`
+        `✅ <b>${sentBatch.posts_count} Threads posts</b> for @${sentBatch.account?.username} confirmed!\n\n🗑️ Now delete all <b>${sentBatch.images_count} images</b> from the Drive folder.\n\nReply with <b>✅✅</b> once all images are deleted.`
       )
       return NextResponse.json({ ok: true })
     }
@@ -191,7 +191,7 @@ export async function POST(request: NextRequest) {
           .eq("id", postedBatch.id)
 
         await sendMessage(chatId,
-          `🗑️ Perfekt! Alle Bilder für @${postedBatch.account?.username} gelöscht.\n\nHeute komplett erledigt ✅`
+          `🗑️ Perfect! All images for @${postedBatch.account?.username} deleted.\n\nAll done for today ✅`
         )
         return NextResponse.json({ ok: true })
       }
@@ -213,7 +213,7 @@ async function handleAllActive(cb: {
   const now      = new Date().toISOString()
   const time     = new Date().toLocaleTimeString("de-DE", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Bangkok" })
 
-  await answerCallback(cb.id, "✅ Alle Active gespeichert!")
+  await answerCallback(cb.id, "✅ All accounts set active!")
 
   const supabase = createServerClient()
   const { data: emp } = await supabase
@@ -239,13 +239,13 @@ async function handleAllActive(cb: {
   for (const username of accounts) {
     await supabase
       .from("account_pairs")
-      .update({ status: "active", status_since: now, status_note: `Alle Active by ${cb.from.first_name ?? emp.name}` })
+      .update({ status: "active", status_since: now, status_note: `All Active by ${cb.from.first_name ?? emp.name}` })
       .ilike(usernameField, username)
   }
 
   const names = accounts.map(u => `@${u}`).join("  ·  ")
   await editMessage(chatId, msgId,
-    `✅ <b>Alle ${platform.toUpperCase()} Accounts Active</b>\n${cb.from.first_name ?? emp.name} · ${time} Bangkok\n\n${names}`,
+    `✅ <b>All ${platform.toUpperCase()} accounts active</b>\n${cb.from.first_name ?? emp.name} · ${time} Bangkok\n\n${names}`,
     []
   )
 }
@@ -261,10 +261,10 @@ async function handleProblemReport(cb: {
   const msgId     = cb.message.message_id
   const threadId  = cb.message.message_thread_id
 
-  await answerCallback(cb.id, "⚠️ Accounts werden einzeln angezeigt...")
+  await answerCallback(cb.id, "⚠️ Showing accounts individually...")
 
   await editMessage(chatId, msgId,
-    (cb.message.text ?? "") + `\n\n⚠️ <b>${cb.from.first_name ?? "Mitarbeiter"} meldet ein Problem — Status wird pro Account gesetzt:</b>`,
+    (cb.message.text ?? "") + `\n\n⚠️ <b>${cb.from.first_name ?? "Employee"} reported a problem — set the status per account:</b>`,
     []
   )
 
@@ -340,12 +340,29 @@ async function handleCallback(cb: {
       .update({ status: "gepostet", confirmed_at: now })
       .eq("id", postId)
 
-    const sep = "\n——————————————\n"
-    const baseText = (cb.message.text ?? "").split(sep)[0]
-    const updatedText = baseText + sep + `✅ <b>Scheduled</b> by ${cb.from.first_name ?? "employee"}`
-
-    await editMessage(chatId, messageId, updatedText, [])
+    const confirmedText = buildPostCaption(post) + `\n——————————————\n✅ <b>Scheduled</b> by ${cb.from.first_name ?? "employee"}`
+    await editMessage(chatId, messageId, confirmedText, [[
+      { text: "↩️ Undo", callback_data: `u:${postId}` },
+    ]])
     await answerCallback(cb.id, "✅ Marked as scheduled!")
+  }
+
+  // ── ↩️ Undo ──────────────────────────────────────────────────────
+  if (action === "u") {
+    await supabase
+      .from("posting_schedule")
+      .update({ status: "gesendet", confirmed_at: null })
+      .eq("id", postId)
+
+    const originalText = buildPostCaption(post)
+    await editMessage(chatId, messageId, originalText, [
+      [
+        { text: "✅ Scheduled",  callback_data: `c:${postId}` },
+        { text: "🟠 Restricted", callback_data: `r:${postId}` },
+        { text: "🔴 Banned",     callback_data: `b:${postId}` },
+      ]
+    ])
+    await answerCallback(cb.id, "↩️ Reset — download the video and try again")
   }
 
   // ── 🟠 Restricted ───────────────────────────────────────────────
@@ -568,6 +585,23 @@ async function handleStatusCycle(cb: {
       creator:   pair?.creator ?? "—",
     })
   }
+}
+
+const POST_TIMES: Record<number, string> = { 1: "23:00", 2: "00:00", 3: "01:00" }
+const NY_TIMES:   Record<number, string> = { 1: "11:00 AM", 2: "12:00 PM", 3: "1:00 PM" }
+
+function buildPostCaption(post: { account: string; platform: string; reel_number: number; video_link?: string | null; caption?: string | null }) {
+  const time   = POST_TIMES[post.reel_number] ?? "23:00"
+  const nyTime = NY_TIMES[post.reel_number]   ?? "11:00 AM"
+  const lines: string[] = []
+  lines.push(`🆔 <b>Account: ${post.account}</b>`)
+  lines.push(`📲 Platform: ${post.platform}`)
+  lines.push(`📅 Schedule for <b>${time} Philippines</b> · ${nyTime} New York`)
+  lines.push(`📌 Reel ${post.reel_number} of today`)
+  if (post.video_link) lines.push(`🎬 <a href="${post.video_link}">Download video</a>`)
+  lines.push(`\n⏰ You don't have to be awake at ${time} PH — just schedule it now and it posts automatically!`)
+  if (post.caption) lines.push(`\n——————————————\n📝 <b>Caption (tap to copy):</b>\n<code>${post.caption}</code>`)
+  return lines.join("\n")
 }
 
 function buildStatusKeyboard(

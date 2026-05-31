@@ -20,7 +20,7 @@ export async function GET(request: Request) {
   }
 
   const supabase = createServerClient()
-  const today    = now.toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok" })
+  const today    = now.toLocaleDateString("en-GB", { weekday: "long", day: "numeric", month: "long", timeZone: "Asia/Bangkok" })
   const todayStr = now.toISOString().slice(0, 10)
 
   const { data: employees } = await supabase
@@ -55,11 +55,11 @@ export async function GET(request: Request) {
       const names = igAccounts.map(u => `• @${u}`).join("\n")
       await sendMessage(
         emp.telegram_chat_id,
-        `📊 <b>IG Daily Check — ${today}</b>\n\n${names}\n\n<i>Sind heute alle Accounts erreichbar?</i>`,
+        `📊 <b>IG Daily Check — ${today}</b>\n\n${names}\n\n<i>Are all accounts reachable today?</i>`,
         emp.telegram_ig_status_thread_id,
         [[
-          { text: "✅ Alle Active",     callback_data: "aa:ig" },
-          { text: "⚠️ Problem melden", callback_data: "pm:ig" },
+          { text: "✅ All Active",      callback_data: "aa:ig" },
+          { text: "⚠️ Report Problem", callback_data: "pm:ig" },
         ]]
       )
 
@@ -82,11 +82,11 @@ export async function GET(request: Request) {
       const names = fbAccounts.map(u => `• @${u}`).join("\n")
       await sendMessage(
         emp.telegram_chat_id,
-        `📊 <b>FB Daily Check — ${today}</b>\n\n${names}\n\n<i>Sind heute alle Accounts erreichbar?</i>`,
+        `📊 <b>FB Daily Check — ${today}</b>\n\n${names}\n\n<i>Are all accounts reachable today?</i>`,
         emp.telegram_fb_status_thread_id,
         [[
-          { text: "✅ Alle Active",     callback_data: "aa:fb" },
-          { text: "⚠️ Problem melden", callback_data: "pm:fb" },
+          { text: "✅ All Active",      callback_data: "aa:fb" },
+          { text: "⚠️ Report Problem", callback_data: "pm:fb" },
         ]]
       )
 
