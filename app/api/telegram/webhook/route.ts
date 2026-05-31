@@ -370,7 +370,7 @@ async function handleCallback(cb: {
     await supabase
       .from("account_pairs")
       .update({ status: "restricted", status_since: now, status_note: `Reported by ${cb.from.first_name ?? "employee"}` })
-      .or(`ig_link.ilike.%${post.account.replace(/^@/, "")}%,fb_link.ilike.%${post.account.replace(/^@/, "")}%`)
+      .or(`ig_username.ilike.%${post.account.replace(/^@/, "")}%,fb_username.ilike.%${post.account.replace(/^@/, "")}%`)
 
     // Mark post as confirmed so no follow-up fires
     await supabase
@@ -401,7 +401,7 @@ async function handleCallback(cb: {
     await supabase
       .from("account_pairs")
       .update({ status: "banned", status_since: now, status_note: `Reported by ${cb.from.first_name ?? "employee"}` })
-      .or(`ig_link.ilike.%${post.account.replace(/^@/, "")}%,fb_link.ilike.%${post.account.replace(/^@/, "")}%`)
+      .or(`ig_username.ilike.%${post.account.replace(/^@/, "")}%,fb_username.ilike.%${post.account.replace(/^@/, "")}%`)
 
     await supabase
       .from("posting_schedule")
