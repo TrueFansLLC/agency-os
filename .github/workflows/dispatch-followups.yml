@@ -1,0 +1,19 @@
+name: Dispatch Follow-ups & Owner Alerts
+
+on:
+  schedule:
+    # 20:30 Bangkok = 13:30 UTC — follow-up window (30 min after dispatch)
+    - cron: "30 13 * * *"
+    # 21:00 Bangkok = 14:00 UTC — owner alert window (60 min after dispatch)
+    - cron: "0 14 * * *"
+  workflow_dispatch: # allow manual trigger from GitHub UI
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger dispatch-posts (follow-ups + alerts)
+        run: |
+          curl -s -X GET "https://agency-os-q29n.vercel.app/api/cron/dispatch-posts" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            --fail-with-body
