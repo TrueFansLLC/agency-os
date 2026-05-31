@@ -14,7 +14,7 @@ import FbKPICards     from "@/components/facebook/FbKPICards"
 import FbAccountTable from "@/components/facebook/FbAccountTable"
 import FbAccountModal from "@/components/facebook/FbAccountModal"
 
-type PlatformTab = "Alle" | "Instagram" | "Facebook"
+type PlatformTab = "Alle" | "Instagram" | "Facebook" | "Threads"
 
 type Pair = {
   id: string
@@ -351,8 +351,8 @@ export default function SocialPage() {
       {/* Page header */}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-semibold text-white">Social Media</h1>
-          <p className="text-gray-400 mt-1 text-sm">Instagram & Facebook across all creators</p>
+          <h1 className="text-2xl font-semibold text-white">Performance Tracking</h1>
+          <p className="text-gray-400 mt-1 text-sm">Instagram, Facebook & Threads across all creators</p>
         </div>
         {platform === "Instagram" && (
           <div className="flex items-center gap-2">
@@ -398,7 +398,7 @@ export default function SocialPage() {
 
       {/* Platform tabs */}
       <div className="flex items-center gap-1.5 mb-6 pb-5 border-b border-gray-800">
-        {(["Alle", "Instagram", "Facebook"] as const).map(tab => (
+        {(["Alle", "Instagram", "Facebook", "Threads"] as const).map(tab => (
           <button key={tab} onClick={() => { setPlatform(tab); setCreatorFilter("all") }}
             className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               platform === tab ? "bg-white text-gray-900" : "text-gray-400 hover:text-white hover:bg-gray-800"
@@ -420,10 +420,28 @@ export default function SocialPage() {
                 <path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/>
               </svg>
             )}
+            {tab === "Threads" && (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/>
+              </svg>
+            )}
             {tab}
           </button>
         ))}
       </div>
+
+      {/* ═══ THREADS TAB (placeholder — Daten via API folgt) ═════ */}
+      {platform === "Threads" && (
+        <div className="border border-dashed border-gray-800 rounded-xl py-20 text-center">
+          <div className="w-12 h-12 mx-auto mb-4 rounded-full bg-gray-800 flex items-center justify-center">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-gray-400">
+              <circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/>
+            </svg>
+          </div>
+          <p className="text-white font-medium mb-1">Threads Performance Tracking</p>
+          <p className="text-gray-500 text-sm">Kommt bald — sobald wir eine Threads-Daten-API anbinden.<br/>Accounts verwaltest du im <span className="text-gray-300">Account Tracker → Threads</span>.</p>
+        </div>
+      )}
 
       {/* ═══ INSTAGRAM TAB ═══════════════════════════════════════ */}
       {platform === "Instagram" && (

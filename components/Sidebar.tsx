@@ -22,17 +22,10 @@ const ALL_NAV = [
   },
   {
     key: "social",
-    label: "Instagram",
+    label: "Performance Tracking",
     href: "/social",
     adminOnly: false,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="2" width="20" height="20" rx="5"/><circle cx="12" cy="12" r="4"/><circle cx="17.5" cy="6.5" r="1.5" fill="currentColor" stroke="none"/></svg>,
-  },
-  {
-    key: "facebook",
-    label: "Facebook",
-    href: "/facebook",
-    adminOnly: false,
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>,
   },
   {
     key: "tracker",
@@ -40,13 +33,6 @@ const ALL_NAV = [
     href: "/tracker",
     adminOnly: false,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>,
-  },
-  {
-    key: "threads",
-    label: "Threads",
-    href: "/threads",
-    adminOnly: true,
-    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><path d="M8.56 2.75c4.37 6.03 6.02 9.42 8.03 17.72m2.54-15.38c-3.72 4.35-8.94 5.66-16.88 5.85m19.5 1.9c-3.5-.93-6.63-.82-8.94 0-2.58.92-5.01 2.86-7.44 6.32"/></svg>,
   },
   {
     key: "content",
@@ -84,9 +70,9 @@ const ALL_NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   },
   {
-    key: "raphael",
-    label: "Raphael",
-    href: "/raphael",
+    key: "rafael",
+    label: "Rafael",
+    href: "/rafael",
     adminOnly: true,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4.5 4.5 0 0 0-4.5 4.5c0 .5.08.98.23 1.43A4 4 0 0 0 5 11.5a4 4 0 0 0 1.5 3.12A3.5 3.5 0 0 0 9 21a3 3 0 0 0 3-1.5 3 3 0 0 0 3 1.5 3.5 3.5 0 0 0 2.5-6.38A4 4 0 0 0 19 11.5a4 4 0 0 0-2.73-3.57c.15-.45.23-.93.23-1.43A4.5 4.5 0 0 0 12 2z"/><path d="M12 2v19"/></svg>,
   },

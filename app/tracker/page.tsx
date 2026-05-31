@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import ThreadsAccountsPanel from "@/components/ThreadsAccountsPanel"
 
 type Pair = {
   id: string
@@ -359,6 +360,7 @@ export default function TrackerPage() {
   const [creator,   setCreator]   = useState("all")
   const [empFilter, setEmpFilter] = useState("all")
   const [brandFilter, setBrandFilter] = useState("all")
+  const [platformTab, setPlatformTab] = useState<"pairs" | "threads">("pairs")
   const [modal,     setModal]     = useState<{ mode: "add" } | { mode: "edit"; pair: Pair } | null>(null)
 
   async function load() {
@@ -429,14 +431,30 @@ export default function TrackerPage() {
           <h1 className="text-2xl font-semibold text-white">Account Tracker</h1>
           <p className="text-gray-500 text-sm mt-1">{pairs.length} account pairs tracked</p>
         </div>
-        <button onClick={() => setModal({ mode: "add" })}
-          className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-100 text-gray-950 font-medium rounded-lg text-sm transition-colors">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
-          Add Account Pair
-        </button>
+        {platformTab === "pairs" && (
+          <button onClick={() => setModal({ mode: "add" })}
+            className="flex items-center gap-2 px-4 py-2 bg-white hover:bg-gray-100 text-gray-950 font-medium rounded-lg text-sm transition-colors">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+            Add Account Pair
+          </button>
+        )}
       </div>
 
-      {loading ? (
+      {/* Platform toggle */}
+      <div className="flex gap-2 mb-6">
+        {([["pairs", "Instagram & Facebook"], ["threads", "Threads"]] as const).map(([key, label]) => (
+          <button key={key} onClick={() => setPlatformTab(key)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              platformTab === key ? "bg-white text-gray-950" : "bg-gray-900 border border-gray-700 text-gray-400 hover:text-white"
+            }`}>
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {platformTab === "threads" ? (
+        <ThreadsAccountsPanel />
+      ) : loading ? (
         <div className="flex items-center justify-center h-64">
           <div className="animate-spin w-6 h-6 border-2 border-gray-700 border-t-white rounded-full"/>
         </div>
