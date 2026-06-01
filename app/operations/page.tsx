@@ -324,16 +324,21 @@ export default function OperationsPage() {
         </section>
 
         <section className="rounded-xl border border-gray-800 bg-gray-900 p-5">
-          <SectionHeader title="AI production" detail="Today&apos;s generation workload and human review backlog." href="/ai-tools"/>
+          <SectionHeader title="AI production" detail="Today&apos;s generation workload and human review backlog." href="/generation-jobs"/>
           <div className="grid grid-cols-2 gap-3">
             <MetricCard label="Seedream" value={data.ai.by_model.seedream} detail="Fast image calls"/>
             <MetricCard label="Quality" value={data.ai.by_model.nano_banana_pro} detail="Nano Banana Pro calls"/>
             <MetricCard label="Review queue" value={data.ai.review_queue} detail="Human calibration backlog" accent={data.ai.review_queue ? "text-sky-300" : "text-emerald-300"}/>
             <MetricCard label="QA attention" value={data.ai.review_required} detail="Automated fidelity flags" accent={data.ai.review_required ? "text-amber-300" : "text-emerald-300"}/>
           </div>
-          <Link href="/quality-review" className="mt-4 block rounded-lg border border-violet-800 bg-violet-950/30 px-3 py-2.5 text-center text-xs font-medium text-violet-300 hover:border-violet-600 hover:text-violet-200">
-            Open quality review inbox
-          </Link>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <Link href="/generation-jobs" className="rounded-lg border border-sky-800 bg-sky-950/30 px-3 py-2.5 text-center text-xs font-medium text-sky-300 hover:border-sky-600 hover:text-sky-200">
+              Open job center
+            </Link>
+            <Link href="/quality-review" className="rounded-lg border border-violet-800 bg-violet-950/30 px-3 py-2.5 text-center text-xs font-medium text-violet-300 hover:border-violet-600 hover:text-violet-200">
+              Quality review inbox
+            </Link>
+          </div>
         </section>
       </div>
     </div>

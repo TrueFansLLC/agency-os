@@ -242,8 +242,8 @@ export async function GET() {
       id: "generation-failures",
       severity: "warning",
       title: `${failedGenerations.length} image generation${failedGenerations.length === 1 ? "" : "s"} failed today`,
-      detail: "Open AI Tools to review errors and retry the failed jobs.",
-      href: "/ai-tools",
+      detail: "Open the Job Center to review errors and retry only the failed images.",
+      href: "/generation-jobs",
     })
   }
   if (reviewQueue) {

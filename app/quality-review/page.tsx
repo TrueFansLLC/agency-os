@@ -296,6 +296,7 @@ export default function QualityReviewPage() {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/ai-tools" className="rounded-lg bg-violet-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-violet-500">Generate images</Link>
+          <Link href="/generation-jobs" className="rounded-lg border border-sky-700 bg-sky-950/20 px-4 py-2.5 text-sm text-sky-300 hover:border-sky-500 hover:text-sky-200">Open job center</Link>
           <Link href="/content-bank" className="rounded-lg border border-gray-700 px-4 py-2.5 text-sm text-gray-300 hover:border-gray-500 hover:text-white">Open content bank</Link>
         </div>
       </div>

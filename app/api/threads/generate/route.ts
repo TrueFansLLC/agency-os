@@ -15,6 +15,7 @@ const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/
 const GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 const STRICT_IDENTITY_REF_COUNT = 3
 const MAX_RESULT_POLL_ATTEMPTS = 10
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const IMAGE_SIZES = new Set(["square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9", "auto_2K", "auto_4K"])
 const EMPTY_RESULT_ERROR = "fal completed without returning an image."
 const SAFETY_FILTER_ERROR = "fal safety filter blocked this result. Use a less revealing screenshot or add a platform-safe coverage instruction and retry."
@@ -296,6 +297,10 @@ function parseGenerationModel(value: unknown): GenerationModel {
     : "seedream"
 }
 
+function parseGenerationJobId(value: unknown) {
+  return typeof value === "string" && UUID.test(value) ? value : undefined
+}
+
 function parseRecreationStrategy(value: unknown): RecreationStrategy {
   if (value === "subtle_outfit_variations" || value === "different_outfits") return value
   return "exact"
@@ -465,6 +470,7 @@ async function submitPrompts(
     referenceStoragePath?: string | null
     referenceUrl?: string | null
     retryOfId?: string | null
+    jobId?: string
   }
 ) {
   const refs = creatorRefUrls(input.creator).slice(input.referenceUrl ? -STRICT_IDENTITY_REF_COUNT : -10)
@@ -473,6 +479,7 @@ async function submitPrompts(
   // Strict recreation relies on explicit Figure roles: blueprint first, identity-only anchors after it.
   const imageUrls = input.referenceUrl ? [input.referenceUrl, ...refs] : refs
   const batchId = crypto.randomUUID()
+  const jobId = input.jobId ?? batchId
   const headers = { Authorization: `Key ${FAL_KEY}`, "Content-Type": "application/json" }
   const rows: Record<string, unknown>[] = []
 
@@ -485,6 +492,7 @@ async function submitPrompts(
     const data = await response.json().catch(() => ({} as Record<string, unknown>))
     rows.push({
       batch_id: batchId,
+      generation_job_id: jobId,
       creator: input.creator,
       source_label: input.sourceLabel,
       prompt,
@@ -503,7 +511,7 @@ async function submitPrompts(
 
   const { error } = await supabase.from("threads_generations").insert(rows)
   if (error) throw new Error(error.message)
-  return { batch_id: batchId, submitted: rows.length }
+  return { batch_id: batchId, generation_job_id: jobId, submitted: rows.length }
 }
 
 // ── Generate variants for a creator (one per prompt) ──────────────
@@ -513,6 +521,7 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({} as Record<string, unknown>))
   const retryGenerationId = typeof body.retry_generation_id === "string" ? body.retry_generation_id : ""
+  const generationJobId = parseGenerationJobId(body.generation_job_id)
   const generationModel = parseGenerationModel(body.generation_model)
   const recreationStrategy = parseRecreationStrategy(body.recreation_strategy)
   const supabase = createServerClient()
@@ -541,6 +550,7 @@ export async function POST(request: Request) {
         referenceStoragePath: retryGeneration.reference_storage_path,
         referenceUrl: await createBlueprintDataUrl(supabase, retryGeneration.reference_storage_path),
         retryOfId: retryGeneration.id,
+        jobId: generationJobId,
       }))
     } catch (retryError) {
       return NextResponse.json({ error: retryError instanceof Error ? retryError.message : "Retry could not be started." }, { status: 500 })
@@ -574,6 +584,7 @@ export async function POST(request: Request) {
       recreationStrategy,
       referenceStoragePath: blueprintStoragePath,
       referenceUrl: referenceImage,
+      jobId: generationJobId,
     }))
   } catch (generationError) {
     return NextResponse.json({ error: generationError instanceof Error ? generationError.message : "Generation could not be started." }, { status: 500 })
@@ -595,7 +606,7 @@ export async function GET(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     await pollGeneratingRows(supabase, (recent ?? []) as GenerationRow[])
     const { data } = await supabase.from("threads_generations")
-      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,recreation_strategy,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details")
+      .select("id,batch_id,generation_job_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,recreation_strategy,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details")
       .order("created_at", { ascending: false })
       .limit(40)
     return NextResponse.json({ generations: await toPublicGenerations(supabase, data ?? []) })
@@ -605,6 +616,6 @@ export async function GET(request: Request) {
   await pollGeneratingRows(supabase, (gens ?? []) as GenerationRow[])
 
   const { data: updated } = await supabase.from("threads_generations")
-    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,recreation_strategy,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details").eq("batch_id", batchId).order("created_at")
+    .select("id,batch_id,generation_job_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,recreation_strategy,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details").eq("batch_id", batchId).order("created_at")
   return NextResponse.json({ batch_id: batchId, generations: await toPublicGenerations(supabase, updated ?? []) })
 }

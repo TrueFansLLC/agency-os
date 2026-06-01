@@ -7,6 +7,7 @@ import { type ChangeEvent, useCallback, useEffect, useState } from "react"
 type Generation = {
   id: string
   batch_id: string
+  generation_job_id: string
   creator: string
   prompt: string
   image_url: string | null
@@ -241,6 +242,7 @@ export default function AIToolsPage() {
 
     const jobs = mode === "reference" ? referenceImages : [null]
     const submittedBatchIds: string[] = []
+    const generationJobId = crypto.randomUUID()
 
     for (const [index, referenceImage] of jobs.entries()) {
       setSubmissionProgress(jobs.length > 1 ? `Submitting ${index + 1} of ${jobs.length}...` : "")
@@ -257,6 +259,7 @@ export default function AIToolsPage() {
           image_size: referenceImage?.imageSize,
           generation_model: generationModel,
           recreation_strategy: mode === "reference" ? recreationStrategy : "exact",
+          generation_job_id: generationJobId,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -367,6 +370,9 @@ export default function AIToolsPage() {
             </span>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link href="/generation-jobs" className="px-3 py-2 rounded-lg border border-sky-700 bg-sky-900/20 text-sky-300 hover:text-sky-200 hover:border-sky-500 text-xs">
+              Open job center
+            </Link>
             <Link href="/quality-review" className="px-3 py-2 rounded-lg border border-violet-700 bg-violet-900/20 text-violet-300 hover:text-violet-200 hover:border-violet-500 text-xs">
               Open quality review
             </Link>
