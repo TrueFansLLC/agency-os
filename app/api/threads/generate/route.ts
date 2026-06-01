@@ -37,6 +37,7 @@ const NANO_ASPECT_RATIO: Record<string, string> = {
 }
 
 type GenerationModel = keyof typeof MODELS
+type RecreationStrategy = "exact" | "subtle_outfit_variations" | "different_outfits"
 
 type GenerationRow = Record<string, unknown> & {
   id: string
@@ -295,6 +296,11 @@ function parseGenerationModel(value: unknown): GenerationModel {
     : "seedream"
 }
 
+function parseRecreationStrategy(value: unknown): RecreationStrategy {
+  if (value === "subtle_outfit_variations" || value === "different_outfits") return value
+  return "exact"
+}
+
 function buildFalPayload(
   generationModel: GenerationModel,
   prompt: string,
@@ -345,6 +351,12 @@ async function reviewBlueprintFidelity(
   const blueprint = await createBlueprintDataUrl(supabase, generation.reference_storage_path)
   const match = blueprint.match(IMAGE_DATA_URL)
   if (!match) throw new Error("saved blueprint could not be prepared for QA")
+  const recreationStrategy = parseRecreationStrategy(generation.recreation_strategy)
+  const wardrobeRule = recreationStrategy === "subtle_outfit_variations"
+    ? "- wardrobe: evaluate whether the intentional subtle outfit variation keeps a comparable garment category, styling intent and at least the source coverage. Do not penalize a deliberate color, material or pattern change."
+    : recreationStrategy === "different_outfits"
+      ? "- wardrobe: evaluate whether the intentionally different outfit is complete, realistic, platform-safe and at least as covering as the source. Do not penalize a deliberate garment type or color change."
+      : "- wardrobe: garment type, color, cut, sleeves, neckline, fit and coverage boundaries"
 
   const response = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -370,7 +382,7 @@ async function reviewBlueprintFidelity(
               "- composition: camera placement, angle, lens distance and overall layout",
               "- crop: framing and which parts of the scene remain inside the image",
               "- pose: body position and selfie posture",
-              "- wardrobe: garment type, color, cut, sleeves, neckline, fit and coverage boundaries",
+              wardrobeRule,
               "- background: setting, objects and lighting",
               'Return JSON only: {"scores":{"composition":0,"crop":0,"pose":0,"wardrobe":0,"background":0},"summary":"one short English sentence","notes":["up to three short English discrepancies"]}',
             ].join("\n"),
@@ -386,19 +398,29 @@ async function reviewBlueprintFidelity(
     : ""
   const result = extractJsonObject(text)
   const scores = parseQualityScores(result.scores)
-  const qaScore = Math.round(
-    scores.composition * 0.2
-    + scores.crop * 0.25
-    + scores.pose * 0.15
-    + scores.wardrobe * 0.3
-    + scores.background * 0.1
-  )
-  const requiresReview = qaScore < 85 || scores.wardrobe < 85 || scores.crop < 80 || scores.pose < 75
+  const qaScore = recreationStrategy === "exact"
+    ? Math.round(
+      scores.composition * 0.2
+      + scores.crop * 0.25
+      + scores.pose * 0.15
+      + scores.wardrobe * 0.3
+      + scores.background * 0.1
+    )
+    : Math.round(
+      scores.composition * 0.25
+      + scores.crop * 0.3
+      + scores.pose * 0.2
+      + scores.wardrobe * 0.15
+      + scores.background * 0.1
+    )
+  const wardrobeThreshold = recreationStrategy === "exact" ? 85 : 75
+  const requiresReview = qaScore < 85 || scores.wardrobe < wardrobeThreshold || scores.crop < 80 || scores.pose < 75
   return {
     qa_status: requiresReview ? "review_required" : "passed",
     qa_score: qaScore,
     qa_summary: typeof result.summary === "string" ? result.summary.slice(0, 300) : null,
     qa_details: {
+      recreation_strategy: recreationStrategy,
       scores,
       notes: Array.isArray(result.notes) ? result.notes.slice(0, 3).map(note => String(note).slice(0, 200)) : [],
     },
@@ -439,6 +461,7 @@ async function submitPrompts(
     sourceLabel: string | null
     imageSize: string
     generationModel: GenerationModel
+    recreationStrategy: RecreationStrategy
     referenceStoragePath?: string | null
     referenceUrl?: string | null
     retryOfId?: string | null
@@ -472,6 +495,7 @@ async function submitPrompts(
       reference_storage_path: input.referenceStoragePath ?? null,
       image_size: input.imageSize,
       generation_model: input.generationModel,
+      recreation_strategy: input.recreationStrategy,
       retry_of_id: input.retryOfId ?? null,
       qa_status: input.referenceStoragePath ? "pending" : "skipped",
     })
@@ -490,12 +514,13 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({} as Record<string, unknown>))
   const retryGenerationId = typeof body.retry_generation_id === "string" ? body.retry_generation_id : ""
   const generationModel = parseGenerationModel(body.generation_model)
+  const recreationStrategy = parseRecreationStrategy(body.recreation_strategy)
   const supabase = createServerClient()
 
   if (retryGenerationId) {
     const { data: retryGeneration, error } = await supabase
       .from("threads_generations")
-      .select("id,creator,source_label,prompt,reference_storage_path,image_size,generation_model")
+      .select("id,creator,source_label,prompt,reference_storage_path,image_size,generation_model,recreation_strategy")
       .eq("id", retryGenerationId)
       .maybeSingle()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -512,6 +537,7 @@ export async function POST(request: Request) {
         generationModel: typeof body.generation_model === "string"
           ? generationModel
           : parseGenerationModel(retryGeneration.generation_model),
+        recreationStrategy: parseRecreationStrategy(retryGeneration.recreation_strategy),
         referenceStoragePath: retryGeneration.reference_storage_path,
         referenceUrl: await createBlueprintDataUrl(supabase, retryGeneration.reference_storage_path),
         retryOfId: retryGeneration.id,
@@ -545,6 +571,7 @@ export async function POST(request: Request) {
       sourceLabel,
       imageSize: requestedImageSize,
       generationModel,
+      recreationStrategy,
       referenceStoragePath: blueprintStoragePath,
       referenceUrl: referenceImage,
     }))
@@ -568,7 +595,7 @@ export async function GET(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     await pollGeneratingRows(supabase, (recent ?? []) as GenerationRow[])
     const { data } = await supabase.from("threads_generations")
-      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details")
+      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,recreation_strategy,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details")
       .order("created_at", { ascending: false })
       .limit(40)
     return NextResponse.json({ generations: await toPublicGenerations(supabase, data ?? []) })
@@ -578,6 +605,6 @@ export async function GET(request: Request) {
   await pollGeneratingRows(supabase, (gens ?? []) as GenerationRow[])
 
   const { data: updated } = await supabase.from("threads_generations")
-    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details").eq("batch_id", batchId).order("created_at")
+    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,recreation_strategy,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details").eq("batch_id", batchId).order("created_at")
   return NextResponse.json({ batch_id: batchId, generations: await toPublicGenerations(supabase, updated ?? []) })
 }

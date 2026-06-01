@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
   const supabase = createServerClient()
   let query = supabase
     .from("threads_generations")
-    .select("id,creator,source_label,prompt,image_url,status,created_at,generation_model,qa_status,qa_score,qa_summary,qa_details,reference_storage_path,retry_of_id")
+    .select("id,creator,source_label,prompt,image_url,status,created_at,generation_model,recreation_strategy,qa_status,qa_score,qa_summary,qa_details,reference_storage_path,retry_of_id")
     .not("image_url", "is", null)
     .not("reference_storage_path", "is", null)
     .order("created_at", { ascending: false })

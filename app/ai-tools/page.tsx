@@ -18,6 +18,7 @@ type Generation = {
   fal_queue_status: string | null
   error_message: string | null
   generation_model: "seedream" | "nano_banana_pro"
+  recreation_strategy: RecreationStrategy
   can_retry: boolean
   qa_status: "pending" | "passed" | "review_required" | "failed" | "skipped"
   qa_score: number | null
@@ -31,6 +32,8 @@ type ReferenceImage = {
   imageSize: string
   imageSizeLabel: string
 }
+
+type RecreationStrategy = "exact" | "subtle_outfit_variations" | "different_outfits"
 
 const CREATORS = ["Cathy", "Neyla", "Romina"]
 const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
@@ -73,14 +76,36 @@ function qualityStyle(status: Generation["qa_status"]) {
   return "border-gray-700 bg-gray-800 text-gray-300"
 }
 
-function buildRecreatePrompt(creator: string, extraInstructions: string) {
+function recreationStrategyDescription(strategy: RecreationStrategy) {
+  if (strategy === "subtle_outfit_variations") {
+    return "Keep the pose and scene fixed, but change one or two wardrobe details such as color, fabric or pattern."
+  }
+  if (strategy === "different_outfits") {
+    return "Keep the pose and scene fixed, but create a clearly different platform-safe outfit for each variant."
+  }
+  return "Generate repeated attempts of the same screenshot: same pose, same scene and the same outfit."
+}
+
+function buildRecreatePrompt(
+  creator: string,
+  extraInstructions: string,
+  strategy: RecreationStrategy,
+  variantIndex: number,
+  variantCount: number
+) {
+  const wardrobeInstruction = strategy === "subtle_outfit_variations"
+    ? `Create variant ${variantIndex + 1} of ${variantCount} as an intentional subtle wardrobe variation. Keep the garment category, silhouette, fit and at least the same coverage as Figure 1. Change one or two wardrobe attributes such as color, material, pattern or styling detail. Make this variant visibly distinct from the other variants.`
+    : strategy === "different_outfits"
+      ? `Create variant ${variantIndex + 1} of ${variantCount} with an intentionally different complete outfit. Keep at least the same coverage as Figure 1. Change the garment type, color and styling while keeping the outfit realistic and platform-safe. Make this variant clearly distinct from the other variants.`
+      : "Preserve the clothing from Figure 1 exactly: the same garment type, color, cut, sleeves, neckline, material, fit and coverage. Do not redesign, simplify, replace or add clothing items."
+
   return [
     "Figure 1 is the only scene blueprint.",
     `Figures 2, 3 and 4 are identity-only reference images of ${creator}.`,
     `Recreate Figure 1 as a new realistic smartphone photo featuring ${creator}.`,
     "Replace only the person's identity with the identity shown in Figures 2, 3 and 4.",
     "Preserve Figure 1 exactly wherever possible: the same pose, body position, camera placement, camera angle, lens distance, crop, framing, setting, background, lighting and overall composition.",
-    "Preserve the clothing from Figure 1 exactly: the same garment type, color, cut, sleeves, neckline, material, fit and coverage. Do not redesign, simplify, replace or add clothing items.",
+    wardrobeInstruction,
     "Do not copy clothing, pose, framing or background elements from Figures 2, 3 and 4. Use those figures only for the creator identity.",
     "Do not add accessories or visual elements that are absent from Figure 1.",
     extraInstructions ? `Additional requested adjustment: ${extraInstructions}` : "",
@@ -134,6 +159,7 @@ export default function AIToolsPage() {
   const [prompt, setPrompt] = useState("")
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
   const [variants, setVariants] = useState(2)
+  const [recreationStrategy, setRecreationStrategy] = useState<RecreationStrategy>("exact")
   const [batchIds, setBatchIds] = useState<string[]>([])
   const [active, setActive] = useState<Generation[]>([])
   const [recent, setRecent] = useState<Generation[]>([])
@@ -226,10 +252,11 @@ export default function AIToolsPage() {
           source_label: [label.trim(), referenceImage?.name].filter(Boolean).join(" · "),
           prompts: mode === "prompt"
             ? Array.from({ length: variants }, () => cleanPrompt)
-            : Array.from({ length: variants }, () => buildRecreatePrompt(creator, cleanPrompt)),
+            : Array.from({ length: variants }, (_, variantIndex) => buildRecreatePrompt(creator, cleanPrompt, recreationStrategy, variantIndex, variants)),
           reference_image_data_url: referenceImage?.dataUrl,
           image_size: referenceImage?.imageSize,
           generation_model: generationModel,
+          recreation_strategy: mode === "reference" ? recreationStrategy : "exact",
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -444,6 +471,19 @@ export default function AIToolsPage() {
               </select>
             </div>
 
+            {mode === "reference" && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Variation strategy</label>
+                <select value={recreationStrategy} onChange={event => setRecreationStrategy(event.target.value as RecreationStrategy)}
+                  className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500">
+                  <option value="exact">Exact recreation attempts</option>
+                  <option value="subtle_outfit_variations">Subtle outfit variations</option>
+                  <option value="different_outfits">Different outfits, same pose</option>
+                </select>
+                <p className="text-xs text-gray-500 mt-1.5">{recreationStrategyDescription(recreationStrategy)}</p>
+              </div>
+            )}
+
             {error && <p className="text-sm text-red-300 border border-red-900 bg-red-950/40 rounded-lg px-3 py-2">{error}</p>}
 
             {submissionProgress && <p className="text-xs text-violet-300">{submissionProgress}</p>}
@@ -542,6 +582,11 @@ export default function AIToolsPage() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-500 mt-1">{generationModelLabel(generation.generation_model)}</p>
+                    {generation.recreation_strategy !== "exact" && (
+                      <p className="mt-1 text-[11px] text-sky-300">
+                        {generation.recreation_strategy === "subtle_outfit_variations" ? "Subtle outfit variation" : "Different outfit, same pose"}
+                      </p>
+                    )}
                     {generation.image_url && qualityLabel(generation.qa_status) && (
                       <div className="mt-2">
                         <div className="flex flex-wrap items-center gap-2">

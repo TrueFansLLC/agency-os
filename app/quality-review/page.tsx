@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 type Verdict = "approved" | "usable" | "rejected"
 type GenerationModel = "seedream" | "nano_banana_pro"
 type QaStatus = "pending" | "passed" | "review_required" | "failed" | "skipped"
+type RecreationStrategy = "exact" | "subtle_outfit_variations" | "different_outfits"
 
 type Review = {
   generation_id: string
@@ -24,6 +25,7 @@ type Generation = {
   image_url: string
   created_at: string
   generation_model: GenerationModel
+  recreation_strategy: RecreationStrategy
   qa_status: QaStatus
   qa_score: number | null
   qa_summary: string | null
@@ -77,6 +79,12 @@ const REJECTION_REASONS = [
 
 function modelLabel(model: GenerationModel) {
   return model === "nano_banana_pro" ? "Nano Banana Pro" : "Seedream 4.5"
+}
+
+function recreationStrategyLabel(strategy: RecreationStrategy) {
+  if (strategy === "subtle_outfit_variations") return "Subtle outfit variations"
+  if (strategy === "different_outfits") return "Different outfits, same pose"
+  return "Exact recreation attempts"
 }
 
 function qaLabel(status: QaStatus) {
@@ -391,7 +399,7 @@ export default function QualityReviewPage() {
                       <span className={`rounded-full border px-2 py-0.5 text-[11px] ${qaStyle(selected.qa_status)}`}>{qaLabel(selected.qa_status)}</span>
                       {typeof selected.qa_score === "number" && <span className="text-xs text-gray-400">{selected.qa_score}/100</span>}
                     </div>
-                    <p className="mt-1 text-xs text-gray-500">{modelLabel(selected.generation_model)} · {selected.source_label ?? "No label"}</p>
+                    <p className="mt-1 text-xs text-gray-500">{modelLabel(selected.generation_model)} · {recreationStrategyLabel(selected.recreation_strategy)} · {selected.source_label ?? "No label"}</p>
                   </div>
                   <div className="flex flex-wrap gap-2">
                     <button type="button" onClick={() => void retry(selected.generation_model)} disabled={working}
