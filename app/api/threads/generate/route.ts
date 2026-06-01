@@ -11,6 +11,8 @@ const SEEDREAM_EDIT = "fal-ai/bytedance/seedream/v4.5/edit"
 const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
 const IMAGE_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,/
 const GENERATION_TIMEOUT_MS = 15 * 60 * 1000
+const STRICT_IDENTITY_REF_COUNT = 3
+const IMAGE_SIZES = new Set(["square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9", "auto_2K", "auto_4K"])
 
 type GenerationRow = Record<string, unknown> & {
   id: string
@@ -135,15 +137,19 @@ export async function POST(request: Request) {
     : []
   const sourceLabel = typeof body.source_label === "string" ? body.source_label.trim() || null : null
   const referenceImage = typeof body.reference_image_data_url === "string" ? body.reference_image_data_url : null
+  const requestedImageSize = typeof body.image_size === "string" && IMAGE_SIZES.has(body.image_size)
+    ? body.image_size
+    : "portrait_4_3"
   if (!creator || !prompts.length) return NextResponse.json({ error: "creator + prompts[] required" }, { status: 400 })
   if (prompts.length > 10) return NextResponse.json({ error: "maximum 10 variants per batch" }, { status: 400 })
   if (referenceImage && (!IMAGE_DATA_URL.test(referenceImage) || referenceImage.length > MAX_REFERENCE_IMAGE_LENGTH)) {
     return NextResponse.json({ error: "reference image must be a compressed JPEG, PNG or WebP under 2.5 MB" }, { status: 400 })
   }
 
-  const refs = creatorRefUrls(creator).slice(referenceImage ? -9 : -10)
+  const refs = creatorRefUrls(creator).slice(referenceImage ? -STRICT_IDENTITY_REF_COUNT : -10)
   if (!refs.length) return NextResponse.json({ error: `no reference images for creator '${creator}'` }, { status: 400 })
-  const imageUrls = referenceImage ? [...refs, referenceImage] : refs
+  // Strict recreation relies on explicit Figure roles: blueprint first, identity-only anchors after it.
+  const imageUrls = referenceImage ? [referenceImage, ...refs] : refs
 
   const supabase = createServerClient()
   const batchId  = crypto.randomUUID()
@@ -153,7 +159,7 @@ export async function POST(request: Request) {
   for (const prompt of prompts) {
     const r = await fetch(`https://queue.fal.run/${SEEDREAM_EDIT}`, {
       method: "POST", headers,
-      body: JSON.stringify({ prompt, image_urls: imageUrls, image_size: "portrait_4_3", num_images: 1, enable_safety_checker: true }),
+      body: JSON.stringify({ prompt, image_urls: imageUrls, image_size: requestedImageSize, num_images: 1, enable_safety_checker: true }),
     })
     const d = await r.json().catch(() => ({}))
     rows.push({

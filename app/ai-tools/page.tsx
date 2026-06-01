@@ -23,11 +23,12 @@ type ReferenceImage = {
   id: string
   name: string
   dataUrl: string
+  imageSize: string
+  imageSizeLabel: string
 }
 
 const CREATORS = ["Cathy", "Neyla", "Romina"]
 const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
-const RECREATE_PROMPT = "Use the final input image as the visual scene reference. Recreate it as a new realistic smartphone photo featuring the same selected creator identity shown in the preceding identity reference images. Preserve the final reference image's pose, camera angle, crop, setting, lighting, outfit category and overall mood as closely as possible. Do not blend identities or retain the original person's facial features."
 const STATUS_STYLE: Record<string, string> = {
   generating: "border-amber-700 bg-amber-900/30 text-amber-300",
   pending: "border-emerald-700 bg-emerald-900/30 text-emerald-300",
@@ -39,6 +40,29 @@ function statusLabel(status: string) {
   if (status === "pending") return "Ready"
   if (status === "failed") return "Failed"
   return status
+}
+
+function buildRecreatePrompt(creator: string, extraInstructions: string) {
+  return [
+    "Figure 1 is the only scene blueprint.",
+    `Figures 2, 3 and 4 are identity-only reference images of ${creator}.`,
+    `Recreate Figure 1 as a new realistic smartphone photo featuring ${creator}.`,
+    "Replace only the person's identity with the identity shown in Figures 2, 3 and 4.",
+    "Preserve Figure 1 exactly wherever possible: the same pose, body position, camera placement, camera angle, lens distance, crop, framing, setting, background, lighting and overall composition.",
+    "Preserve the clothing from Figure 1 exactly: the same garment type, color, cut, sleeves, neckline, material, fit and coverage. Do not redesign, simplify, replace or add clothing items.",
+    "Do not copy clothing, pose, framing or background elements from Figures 2, 3 and 4. Use those figures only for the creator identity.",
+    "Do not add accessories or visual elements that are absent from Figure 1.",
+    extraInstructions ? `Additional requested adjustment: ${extraInstructions}` : "",
+  ].filter(Boolean).join(" ")
+}
+
+function detectImageSize(width: number, height: number) {
+  const ratio = width / height
+  if (ratio <= 0.68) return { imageSize: "portrait_16_9", imageSizeLabel: "Portrait 9:16" }
+  if (ratio <= 0.9) return { imageSize: "portrait_4_3", imageSizeLabel: "Portrait 3:4" }
+  if (ratio <= 1.15) return { imageSize: "square_hd", imageSizeLabel: "Square" }
+  if (ratio <= 1.5) return { imageSize: "landscape_4_3", imageSizeLabel: "Landscape 4:3" }
+  return { imageSize: "landscape_16_9", imageSizeLabel: "Landscape 16:9" }
 }
 
 async function compressReferenceImage(file: File) {
@@ -65,7 +89,7 @@ async function compressReferenceImage(file: File) {
     if (dataUrl.length > MAX_REFERENCE_IMAGE_LENGTH) {
       throw new Error("The screenshot is still too large after compression. Please crop it and upload it again.")
     }
-    return dataUrl
+    return { dataUrl, ...detectImageSize(image.naturalWidth, image.naturalHeight) }
   } finally {
     URL.revokeObjectURL(objectUrl)
   }
@@ -144,10 +168,6 @@ export default function AIToolsPage() {
     const cleanPrompt = prompt.trim()
     if (mode === "prompt" && !cleanPrompt) return
     if (mode === "reference" && !referenceImages.length) return
-    const effectivePrompt = mode === "reference"
-      ? `${RECREATE_PROMPT}${cleanPrompt ? ` Additional instructions: ${cleanPrompt}` : ""}`
-      : cleanPrompt
-
     setSubmitting(true)
     setError("")
     setActive([])
@@ -166,8 +186,11 @@ export default function AIToolsPage() {
         body: JSON.stringify({
           creator,
           source_label: [label.trim(), referenceImage?.name].filter(Boolean).join(" · "),
-          prompts: mode === "prompt" ? Array.from({ length: variants }, () => effectivePrompt) : [effectivePrompt],
+          prompts: mode === "prompt"
+            ? Array.from({ length: variants }, () => cleanPrompt)
+            : [buildRecreatePrompt(creator, cleanPrompt)],
           reference_image_data_url: referenceImage?.dataUrl,
+          image_size: referenceImage?.imageSize,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -193,7 +216,7 @@ export default function AIToolsPage() {
     try {
       const prepared: ReferenceImage[] = []
       for (const file of files) {
-        prepared.push({ id: crypto.randomUUID(), name: file.name, dataUrl: await compressReferenceImage(file) })
+        prepared.push({ id: crypto.randomUUID(), name: file.name, ...await compressReferenceImage(file) })
       }
       setReferenceImages(current => [...current, ...prepared])
     } catch (uploadError) {
@@ -302,6 +325,7 @@ export default function AIToolsPage() {
                         <div className="relative aspect-[4/5]">
                           <Image src={referenceImage.dataUrl} alt={referenceImage.name} fill unoptimized className="object-contain"/>
                         </div>
+                        <span className="absolute bottom-1.5 left-1.5 rounded bg-gray-950/90 px-1.5 py-0.5 text-[10px] text-gray-300">{referenceImage.imageSizeLabel}</span>
                         <button type="button" onClick={() => setReferenceImages(current => current.filter(image => image.id !== referenceImage.id))}
                           className="absolute right-1.5 top-1.5 rounded-md border border-gray-700 bg-gray-950/90 px-1.5 py-0.5 text-[11px] text-gray-300 hover:text-white">
                           Remove
