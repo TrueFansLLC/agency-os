@@ -321,9 +321,14 @@ export default function AIToolsPage() {
               {generationModelLabel(generationModel)}
             </span>
           </div>
-          <Link href="/content-bank" className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs">
-            Open content bank
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link href="/quality-review" className="px-3 py-2 rounded-lg border border-violet-700 bg-violet-900/20 text-violet-300 hover:text-violet-200 hover:border-violet-500 text-xs">
+              Open quality review
+            </Link>
+            <Link href="/content-bank" className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs">
+              Open content bank
+            </Link>
+          </div>
         </div>
         <p className="text-gray-400 mt-1 text-sm">Create a new scene from a prompt or recreate a screenshot with your selected creator.</p>
       </div>

@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server"
 const PUBLIC_PATHS = ["/login", "/auth", "/set-password", "/unauthorized", "/api/cron", "/api/telegram/webhook", "/api/rafael/webhook", "/api/sync", "/api/facebook-sync", "/api/fal-test", "/api/threads/generate"]
 
 // Pages that require admin role
-const ADMIN_ONLY = ["/admin", "/settings", "/employees", "/revenue", "/team", "/account-status", "/creators", "/rafael", "/tasks", "/threads", "/content-bank"]
+const ADMIN_ONLY = ["/admin", "/settings", "/employees", "/revenue", "/team", "/account-status", "/creators", "/rafael", "/tasks", "/threads", "/content-bank", "/quality-review"]
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })

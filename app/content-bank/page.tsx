@@ -181,9 +181,14 @@ export default function ContentBankPage() {
           <h1 className="text-2xl font-semibold text-white">Content Bank</h1>
           <p className="text-gray-400 mt-1 text-sm">Curate reusable images, prepare account packs and track what has already been used.</p>
         </div>
-        <Link href="/ai-tools" className="px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium">
-          Generate images
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/quality-review" className="rounded-lg border border-gray-700 px-4 py-2.5 text-sm text-gray-300 hover:border-gray-500 hover:text-white">
+            Quality review
+          </Link>
+          <Link href="/ai-tools" className="px-4 py-2.5 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium">
+            Generate images
+          </Link>
+        </div>
       </div>
 
       {error && <p className="text-sm text-red-300 border border-red-900 bg-red-950/40 rounded-lg px-4 py-3 mb-5">{error}</p>}
