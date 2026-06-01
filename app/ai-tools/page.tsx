@@ -34,6 +34,10 @@ type ReferenceImage = {
 
 const CREATORS = ["Cathy", "Neyla", "Romina"]
 const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
+const MODEL_PRICE_PER_IMAGE: Record<Generation["generation_model"], number> = {
+  seedream: 0.04,
+  nano_banana_pro: 0.15,
+}
 const STATUS_STYLE: Record<string, string> = {
   generating: "border-amber-700 bg-amber-900/30 text-amber-300",
   pending: "border-emerald-700 bg-emerald-900/30 text-emerald-300",
@@ -49,6 +53,10 @@ function statusLabel(status: string) {
 
 function generationModelLabel(model: Generation["generation_model"]) {
   return model === "nano_banana_pro" ? "Nano Banana Pro Quality" : "Seedream 4.5 Fast"
+}
+
+function formatUsd(value: number) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(value)
 }
 
 function qualityLabel(status: Generation["qa_status"]) {
@@ -137,6 +145,11 @@ export default function AIToolsPage() {
   const [savingAssetIds, setSavingAssetIds] = useState<string[]>([])
   const [selectedGenerationIds, setSelectedGenerationIds] = useState<string[]>([])
   const [retryingGenerationIds, setRetryingGenerationIds] = useState<string[]>([])
+  const [premiumCostConfirmed, setPremiumCostConfirmed] = useState(false)
+
+  useEffect(() => {
+    setPremiumCostConfirmed(false)
+  }, [generationModel, mode, referenceImages.length, variants])
 
   const loadRecent = useCallback(async () => {
     setLoadingRecent(true)
@@ -193,6 +206,8 @@ export default function AIToolsPage() {
     const cleanPrompt = prompt.trim()
     if (mode === "prompt" && !cleanPrompt) return
     if (mode === "reference" && !referenceImages.length) return
+    const imageCount = mode === "reference" ? referenceImages.length * variants : variants
+    if (generationModel === "nano_banana_pro" && imageCount > 1 && !premiumCostConfirmed) return
     setSubmitting(true)
     setError("")
     setActive([])
@@ -310,6 +325,9 @@ export default function AIToolsPage() {
     .map(generation => generation.id)
   const canGenerate = mode === "prompt" ? Boolean(prompt.trim()) : Boolean(referenceImages.length)
   const totalImages = mode === "reference" ? referenceImages.length * variants : variants
+  const modelPricePerImage = MODEL_PRICE_PER_IMAGE[generationModel]
+  const estimatedFalCost = totalImages * modelPricePerImage
+  const premiumBatchNeedsConfirmation = generationModel === "nano_banana_pro" && totalImages > 1
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -406,7 +424,7 @@ export default function AIToolsPage() {
                       disabled={processingImage} className="hidden"/>
                   </label>
                 )}
-                <p className="text-xs text-gray-500 mt-1.5">Seedream recreates each screenshot separately with the selected creator. The creator references remain attached automatically.</p>
+                <p className="text-xs text-gray-500 mt-1.5">The selected model recreates each screenshot separately with the selected creator. The creator references remain attached automatically.</p>
               </div>
             )}
 
@@ -430,7 +448,25 @@ export default function AIToolsPage() {
 
             {submissionProgress && <p className="text-xs text-violet-300">{submissionProgress}</p>}
 
-            <button onClick={() => void handleGenerate()} disabled={submitting || processingImage || Boolean(batchIds.length) || !canGenerate}
+            <div className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-gray-400">Estimated fal cost</p>
+                <p className="text-sm font-medium text-white">{formatUsd(estimatedFalCost)}</p>
+              </div>
+              <p className="mt-1 text-[11px] text-gray-600">
+                {totalImages} {totalImages === 1 ? "image" : "images"} × {formatUsd(modelPricePerImage)}. Excludes optional fidelity QA usage.
+              </p>
+            </div>
+
+            {premiumBatchNeedsConfirmation && (
+              <label className="flex cursor-pointer items-start gap-2 rounded-lg border border-violet-900 bg-violet-950/30 px-3 py-2.5">
+                <input type="checkbox" checked={premiumCostConfirmed} onChange={event => setPremiumCostConfirmed(event.target.checked)}
+                  className="mt-0.5 accent-violet-500"/>
+                <span className="text-xs text-violet-200">Confirm this premium Quality batch before generating {totalImages} images.</span>
+              </label>
+            )}
+
+            <button onClick={() => void handleGenerate()} disabled={submitting || processingImage || Boolean(batchIds.length) || !canGenerate || (premiumBatchNeedsConfirmation && !premiumCostConfirmed)}
               className="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               {submitting ? "Starting..." : batchIds.length ? "Generating..." : `Generate ${totalImages} ${totalImages === 1 ? "image" : "images"}`}
             </button>
@@ -441,7 +477,7 @@ export default function AIToolsPage() {
           <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <div>
               <h2 className="text-white font-semibold">{active.length ? "Current batch" : "Recent images"}</h2>
-              <p className="text-xs text-gray-500 mt-0.5">{active.length ? "This page updates automatically while Seedream is working." : "The last 40 generated variants."}</p>
+              <p className="text-xs text-gray-500 mt-0.5">{active.length ? "This page updates automatically while the image model is working." : "The last 40 generated variants."}</p>
             </div>
             <button onClick={() => void loadRecent()} disabled={loadingRecent || Boolean(batchIds.length)}
               className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs disabled:opacity-50">
@@ -523,7 +559,7 @@ export default function AIToolsPage() {
                         {generation.fal_queue_status === "COMPLETED"
                           ? "Finalizing image result..."
                           : generation.fal_queue_status === "IN_PROGRESS"
-                            ? "Seedream is rendering..."
+                            ? "The image model is rendering..."
                             : "Waiting in the fal queue..."}
                       </p>
                     )}
