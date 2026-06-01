@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 const SHEET_ID = "1_In9iX58LVbAGY2TcyETEOR1xhsIraWA"
 const CSV_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/export?format=csv`
@@ -41,6 +42,9 @@ function parseCSV(text: string): { headers: string[]; rows: Record<string, strin
 }
 
 export async function GET() {
+  const auth = await requireAnyPageAccess(["tracker"])
+  if (auth.response) return auth.response
+
   try {
     const res = await fetch(`${CSV_URL}&t=${Date.now()}`, { redirect: "follow", cache: "no-store" })
 

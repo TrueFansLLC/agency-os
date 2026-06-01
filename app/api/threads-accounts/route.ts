@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAnyPageAccess(["tracker", "posting-planer"])
+  if (auth.response) return auth.response
+
   const { searchParams } = new URL(request.url)
   const archived = searchParams.get("archived") === "1"
   const supabase = createServerClient()
@@ -16,6 +20,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAnyPageAccess(["tracker", "posting-planer"])
+  if (auth.response) return auth.response
+
   const body = await request.json()
   const supabase = createServerClient()
   const { data, error } = await supabase

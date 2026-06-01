@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAdminUser, requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function GET() {
+  const auth = await requireAnyPageAccess(["tracker", "posting-planer", "employees"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from("employees")
@@ -12,6 +16,9 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const body = await request.json()
   const supabase = createServerClient()
   const { data, error } = await supabase

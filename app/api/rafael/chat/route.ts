@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
 import Anthropic from "@anthropic-ai/sdk"
+import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 // Rafael's brain (web chat). Same identity + business context as the Telegram Rafael
 // (shared from lib/rafael.ts), plus German full-text search over Elijah's saved knowledge.
@@ -22,10 +23,14 @@ ${BUSINESS_CONTEXT}`
 
 // Returns the saved messages history (most recent first → reversed to chronological).
 export async function GET() {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from("raphael_messages")
     .select("id, role, content, created_at")
+    .eq("channel", "web")
     .order("created_at", { ascending: true })
     .limit(200)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -33,6 +38,9 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
     return NextResponse.json(
@@ -89,6 +97,7 @@ export async function POST(req: Request) {
   const { data: history } = await supabase
     .from("raphael_messages")
     .select("role, content")
+    .eq("channel", "web")
     .order("created_at", { ascending: false })
     .limit(10)
   const priorMessages = (history ?? [])
@@ -96,7 +105,7 @@ export async function POST(req: Request) {
     .map((m) => ({ role: m.role === "assistant" ? ("assistant" as const) : ("user" as const), content: m.content }))
 
   // 3) Save the user's message.
-  await supabase.from("raphael_messages").insert({ role: "user", content: userMessage })
+  await supabase.from("raphael_messages").insert({ role: "user", content: userMessage, channel: "web" })
 
   // 4) Ask Claude.
   const anthropic = new Anthropic({ apiKey })
@@ -129,8 +138,8 @@ export async function POST(req: Request) {
 
   if (!reply) reply = "(Keine Antwort erhalten.)"
 
-  // 5) Save Raphael's answer.
-  await supabase.from("raphael_messages").insert({ role: "assistant", content: reply })
+  // 5) Save Rafael's answer.
+  await supabase.from("raphael_messages").insert({ role: "assistant", content: reply, channel: "web" })
 
   return NextResponse.json({ reply, sources })
 }

@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { isCronAuthorized, requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isCronAuthorized(request)) {
+    const auth = await requireAnyPageAccess(["social"])
+    if (auth.response) return auth.response
+  }
+
   const supabase    = createServerClient()
   const { id }      = await params
   const startedAt   = new Date().toISOString()
@@ -63,12 +69,18 @@ export async function POST(
 
       // Some APIs nest video data
       if (json?.videos && Array.isArray(json.videos)) {
-        videoViews  = json.videos.reduce((s: number, v: any) => s + (v?.view_count ?? v?.views ?? 0), 0)
+        videoViews  = json.videos.reduce(
+          (sum: number, video: { view_count?: number; views?: number }) =>
+            sum + (video.view_count ?? video.views ?? 0),
+          0
+        )
         videosCount = videosCount || json.videos.length
       }
     }
   } catch (err: unknown) {
-    const cause = (err as any)?.cause?.message ?? (err as any)?.cause?.code ?? ""
+    const cause = err instanceof Error && err.cause instanceof Error
+      ? err.cause.message
+      : ""
     fetchError = err instanceof Error
       ? `${err.message}${cause ? ` (${cause})` : ""}`
       : String(err)
@@ -77,6 +89,7 @@ export async function POST(
   if (fetchError) {
     await supabase.from("sync_logs").insert({
       account_id:    id,
+      platform:      "facebook",
       status:        "error",
       triggered_by:  triggeredBy,
       error_message: fetchError,

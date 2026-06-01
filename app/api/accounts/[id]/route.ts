@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 // ── PATCH /api/accounts/[id] ──────────────────────────────────────
 // Handles both edit and archive. Send only the fields to update.
@@ -7,6 +8,9 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const auth = await requireAnyPageAccess(["social"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { id } = await params
   const body = await request.json()

@@ -26,6 +26,7 @@ export default function AccountStatusPage() {
   const [loading, setLoading]   = useState(true)
   const [filter, setFilter]     = useState<Filter>("all")
   const [reactivating, setReactivating] = useState<string | null>(null)
+  const [now] = useState(() => Date.now())
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -58,7 +59,7 @@ export default function AccountStatusPage() {
   }
 
   function timeSince(dateStr: string) {
-    const diff = Date.now() - new Date(dateStr).getTime()
+    const diff = now - new Date(dateStr).getTime()
     const h = Math.floor(diff / 3600000)
     const d = Math.floor(h / 24)
     if (d > 0) return `${d}d ago`

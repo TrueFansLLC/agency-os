@@ -1,9 +1,10 @@
 import { NextResponse } from "next/server"
+import { isTokenAuthorized } from "@/lib/supabase/auth-server"
 
 // TEMPORARY test endpoint for the FREDZ image pipeline (Seedream 4.5 via fal). Remove after testing.
 export const maxDuration = 60
 
-const TOKEN   = "Fk3Lp9Wq2Zx7Rb5Nc8Hd1Yf4Sg6Tv0"
+const TOKEN   = process.env.FAL_TEST_TOKEN ?? ""
 const FAL_KEY = process.env.FAL_KEY ?? ""
 
 const MODELS: Record<string, string> = {
@@ -12,8 +13,7 @@ const MODELS: Record<string, string> = {
 }
 
 export async function POST(request: Request) {
-  const url = new URL(request.url)
-  if (url.searchParams.get("t") !== TOKEN)
+  if (!isTokenAuthorized(request, TOKEN))
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!FAL_KEY) return NextResponse.json({ error: "FAL_KEY missing on server" }, { status: 500 })
 

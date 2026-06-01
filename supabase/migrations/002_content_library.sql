@@ -103,7 +103,7 @@ CREATE INDEX IF NOT EXISTS idx_content_tags_tag  ON content_tags(tag);
 
 
 -- ── Grant permissions ─────────────────────────────────────────────────────────
-GRANT ALL ON content_items               TO service_role, anon;
-GRANT ALL ON content_metric_snapshots    TO service_role, anon;
-GRANT ALL ON viral_rules                 TO service_role, anon;
-GRANT ALL ON content_tags                TO service_role, anon;
+GRANT ALL ON content_items               TO service_role;
+GRANT ALL ON content_metric_snapshots    TO service_role;
+GRANT ALL ON viral_rules                 TO service_role;
+GRANT ALL ON content_tags                TO service_role;

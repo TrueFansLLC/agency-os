@@ -153,7 +153,7 @@ export async function alertAccountStatus(params: {
   const label = newStatus === "banned" ? "Banned" : "Restricted"
 
   await rafaelSend(
-    `${icon} <b>@${account}</b> — ${label}\nCreator: ${creator} · ${employee}`
+    `${icon} <b>@${account}</b> — ${label}\nCreator: ${creator} · ${platform} · ${employee}`
   )
 }
 

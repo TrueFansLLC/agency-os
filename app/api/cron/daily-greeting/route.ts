@@ -1,14 +1,14 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage } from "@/lib/telegram"
+import { isCronAuthorized } from "@/lib/supabase/auth-server"
 
 const BANGKOK_UTC_OFFSET = 7
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization")
   const force      = new URL(request.url).searchParams.get("force") === "true"
 
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}` && !force) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

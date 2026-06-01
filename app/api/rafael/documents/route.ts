@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 // List everything Raphael currently "knows".
 export async function GET() {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from("raphael_documents")
@@ -15,6 +19,9 @@ export async function GET() {
 
 // Forget a document (its chunks are removed automatically via cascade).
 export async function DELETE(req: Request) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { searchParams } = new URL(req.url)
   const id = searchParams.get("id")

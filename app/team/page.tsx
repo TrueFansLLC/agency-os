@@ -114,7 +114,7 @@ export default function TeamPage() {
           <div className="text-center py-16 border border-dashed border-gray-700 rounded-xl">
             <div className="text-4xl mb-3">👥</div>
             <p className="text-gray-400 font-medium">Noch keine Mitarbeiter eingeladen</p>
-            <p className="text-sm text-gray-500 mt-1">Klick "+ Mitarbeiter einladen" um loszulegen</p>
+            <p className="text-sm text-gray-500 mt-1">Klick &quot;+ Mitarbeiter einladen&quot; um loszulegen</p>
           </div>
         ) : (
           <div className="border border-gray-800 rounded-xl overflow-hidden">

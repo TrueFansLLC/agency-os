@@ -378,9 +378,7 @@ export default function ThreadsPage() {
   async function handleDispatchAll() {
     setDispatching(true)
     setDispatchMsg(null)
-    const res  = await fetch(`/api/cron/dispatch-threads`, {
-      headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET ?? ""}` },
-    })
+    const res  = await fetch(`/api/cron/dispatch-threads`)
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
       setDispatchMsg(`✅ ${data.dispatched ?? 0} Batch${data.dispatched !== 1 ? "es" : ""} per Telegram gesendet`)
@@ -389,13 +387,6 @@ export default function ThreadsPage() {
     }
     setDispatching(false)
     load()
-  }
-
-  async function handleDispatchSingle(batchId: string) {
-    const res  = await fetch(`/api/cron/dispatch-threads`, {
-      headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET ?? ""}` },
-    })
-    if (res.ok) load()
   }
 
   // ── Render ────────────────────────────────────────────────────
@@ -469,7 +460,7 @@ export default function ThreadsPage() {
 
           {activeAccounts.length === 0 ? (
             <div className="border border-dashed border-gray-800 rounded-xl py-16 text-center">
-              <p className="text-gray-500 text-sm">Keine aktiven Accounts. Accounts hinzufügen und auf "Aktiv" setzen.</p>
+              <p className="text-gray-500 text-sm">Keine aktiven Accounts. Accounts hinzufügen und auf &quot;Aktiv&quot; setzen.</p>
             </div>
           ) : (
             <div className="space-y-3">

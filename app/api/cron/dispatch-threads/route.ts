@@ -2,10 +2,10 @@ import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage } from "@/lib/telegram"
 import { getPostingTimes } from "@/types/threads"
+import { isAdminUser, isCronAuthorized } from "@/lib/supabase/auth-server"
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization")
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronAuthorized(request) && !(await isAdminUser())) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

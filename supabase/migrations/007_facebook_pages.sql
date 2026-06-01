@@ -28,6 +28,9 @@ create table if not exists facebook_metric_snapshots (
   unique(account_id, date)
 );
 
-grant all on facebook_accounts          to service_role, anon;
-grant all on facebook_metric_snapshots  to service_role, anon;
-grant all on all sequences in schema public to service_role, anon;
+create unique index if not exists idx_facebook_accounts_handle
+  on facebook_accounts(page_handle);
+
+grant all on facebook_accounts          to service_role;
+grant all on facebook_metric_snapshots  to service_role;
+grant all on all sequences in schema public to service_role;

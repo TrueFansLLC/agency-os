@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAnyPageAccess(["posting-planer"])
+  if (auth.response) return auth.response
+
   const { id } = await params
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: "Invalid body" }, { status: 400 })
@@ -19,6 +23,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAnyPageAccess(["posting-planer"])
+  if (auth.response) return auth.response
+
   const { id } = await params
   const supabase = createServerClient()
   const { error } = await supabase.from("posting_schedule").delete().eq("id", id)

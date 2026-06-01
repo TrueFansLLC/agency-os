@@ -1,6 +1,6 @@
 "use client"
 
-import { Filters, DateRangeOption, AccountStatus } from "@/types/instagram"
+import { Filters, DateRangeOption } from "@/types/instagram"
 
 interface Props {
   filters: Filters

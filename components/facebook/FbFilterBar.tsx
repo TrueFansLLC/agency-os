@@ -1,6 +1,6 @@
 "use client"
 
-import { FbFilters, DateRangeOption, FbAccountStatus } from "@/types/facebook"
+import { FbFilters, DateRangeOption } from "@/types/facebook"
 
 interface Props {
   filters:  FbFilters

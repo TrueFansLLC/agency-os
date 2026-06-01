@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 const PETER_TOKEN = process.env.TELEGRAM_BOT_TOKEN ?? ""
 
@@ -32,6 +33,9 @@ async function sendTaskNotification(params: {
 }
 
 export async function GET() {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from("tasks")
@@ -42,6 +46,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const body     = await request.json()
 

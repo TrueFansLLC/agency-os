@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { createAuthClient } from "@/lib/supabase/auth-browser";
+import { createAuthClient, hasAuthConfig } from "@/lib/supabase/auth-browser";
 
 const ALL_NAV = [
   {
@@ -71,7 +71,7 @@ const ALL_NAV = [
   },
   {
     key: "rafael",
-    label: "Rafael",
+    label: "Agent Center",
     href: "/rafael",
     adminOnly: true,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a4.5 4.5 0 0 0-4.5 4.5c0 .5.08.98.23 1.43A4 4 0 0 0 5 11.5a4 4 0 0 0 1.5 3.12A3.5 3.5 0 0 0 9 21a3 3 0 0 0 3-1.5 3 3 0 0 0 3 1.5 3.5 3.5 0 0 0 2.5-6.38A4 4 0 0 0 19 11.5a4 4 0 0 0-2.73-3.57c.15-.45.23-.93.23-1.43A4.5 4.5 0 0 0 12 2z"/><path d="M12 2v19"/></svg>,
@@ -98,12 +98,37 @@ const ALL_NAV = [
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>,
   },
   {
+    key: "admin",
+    label: "Datenbank-Tool",
+    href: "/admin",
+    adminOnly: true,
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v14a9 3 0 0 0 18 0V5"/><path d="M3 12a9 3 0 0 0 18 0"/></svg>,
+  },
+  {
     key: "settings",
     label: "Settings",
     href: "/settings",
     adminOnly: true,
     icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>,
   },
+];
+
+const NAV_ORDER = [
+  "",
+  "rafael",
+  "social",
+  "tracker",
+  "posting-planer",
+  "content",
+  "tasks",
+  "account-status",
+  "employees",
+  "ai-tools",
+  "creators",
+  "team",
+  "revenue",
+  "admin",
+  "settings",
 ];
 
 export default function Sidebar() {
@@ -114,25 +139,31 @@ export default function Sidebar() {
   const [userName, setUserName]     = useState("Laden...");
 
   useEffect(() => {
+    if (!hasAuthConfig()) return;
+
     const supabase = createAuthClient();
     supabase.auth.getUser().then(({ data: { user } }) => {
       if (!user) return;
       const r = user.user_metadata?.role as string | undefined;
-      setRole(r ?? "admin");
+      setRole(r ?? null);
       setAllowed((user.user_metadata?.allowed_pages ?? []) as string[]);
       setUserName(user.user_metadata?.name ?? user.email ?? "");
     });
   }, []);
 
-  const isAdmin = role !== "employee";
+  const isAdmin = role === "admin";
 
-  const nav = ALL_NAV.filter(item => {
-    if (isAdmin) return true;
-    if (item.adminOnly) return false;
-    return allowedPages.includes(item.key);
-  });
+  const nav = ALL_NAV
+    .filter(item => {
+      if (isAdmin) return true;
+      if (item.adminOnly) return false;
+      return allowedPages.includes(item.key);
+    })
+    .sort((a, b) => NAV_ORDER.indexOf(a.key) - NAV_ORDER.indexOf(b.key));
 
   async function handleLogout() {
+    if (!hasAuthConfig()) return;
+
     const supabase = createAuthClient();
     await supabase.auth.signOut();
     router.push("/login");

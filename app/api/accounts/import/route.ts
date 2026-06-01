@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 // POST /api/accounts/import
 // Reads all non-archived account_pairs and creates/updates instagram_accounts.
 // Uses ig_username directly (not ig_link which is the funnel/bio link).
 export async function POST() {
+  const auth = await requireAnyPageAccess(["social"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
 
   const { data: pairs, error: pairsErr } = await supabase

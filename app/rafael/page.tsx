@@ -13,6 +13,24 @@ type Doc = {
 
 type Msg = { role: "user" | "assistant"; content: string }
 
+type PdfJs = {
+  GlobalWorkerOptions: { workerSrc: string }
+  getDocument: (params: { data: ArrayBuffer }) => {
+    promise: Promise<{
+      numPages: number
+      getPage: (pageNumber: number) => Promise<{
+        getTextContent: () => Promise<{ items: { str?: string }[] }>
+      }>
+    }>
+  }
+}
+
+declare global {
+  interface Window {
+    pdfjsLib?: PdfJs
+  }
+}
+
 const TYPE_LABEL: Record<string, string> = {
   note: "Notiz",
   text: "Text",
@@ -22,14 +40,14 @@ const TYPE_LABEL: Record<string, string> = {
 
 // Loads pdf.js from a CDN once, so PDFs can be read straight in the browser
 // (no server-side PDF library needed).
-function loadPdfJs(): Promise<any> {
+function loadPdfJs(): Promise<PdfJs> {
   return new Promise((resolve, reject) => {
-    const w = window as any
-    if (w.pdfjsLib) return resolve(w.pdfjsLib)
+    if (window.pdfjsLib) return resolve(window.pdfjsLib)
     const script = document.createElement("script")
     script.src = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"
     script.onload = () => {
-      const lib = (window as any).pdfjsLib
+      const lib = window.pdfjsLib
+      if (!lib) return reject(new Error("PDF-Leser konnte nicht geladen werden."))
       lib.GlobalWorkerOptions.workerSrc =
         "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js"
       resolve(lib)
@@ -47,7 +65,7 @@ async function extractPdfText(file: File): Promise<string> {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i)
     const content = await page.getTextContent()
-    out += content.items.map((it: any) => it.str).join(" ") + "\n\n"
+    out += content.items.map((item) => item.str ?? "").join(" ") + "\n\n"
   }
   return out.trim()
 }
@@ -57,6 +75,7 @@ export default function RafaelPage() {
   const [docs, setDocs] = useState<Doc[]>([])
   const [busy, setBusy] = useState(false)
   const [seeding, setSeeding] = useState(false)
+  const [connecting, setConnecting] = useState(false)
   const [flash, setFlash] = useState<{ kind: "ok" | "err"; text: string } | null>(null)
 
   // feed inputs
@@ -82,7 +101,17 @@ export default function RafaelPage() {
     const res = await fetch("/api/rafael/chat")
     const data = await res.json()
     if (Array.isArray(data.messages)) {
-      setMessages(data.messages.map((m: any) => ({ role: m.role, content: m.content })))
+      setMessages(
+        data.messages.filter(
+          (message: unknown): message is Msg =>
+            typeof message === "object" &&
+            message !== null &&
+            "role" in message &&
+            "content" in message &&
+            (message.role === "user" || message.role === "assistant") &&
+            typeof message.content === "string"
+        )
+      )
     }
   }, [])
 
@@ -155,6 +184,27 @@ export default function RafaelPage() {
     } finally {
       setBusy(false)
       if (fileRef.current) fileRef.current.value = ""
+    }
+  }
+
+  async function connectTelegram() {
+    setConnecting(true)
+    try {
+      const res = await fetch("/api/rafael/setup-webhook", { method: "POST" })
+      const data = await res.json()
+      if (data.ok) {
+        showFlash("ok", "Telegram-Bots verbunden! Rafael & Peter laufen jetzt abgesichert weiter. 🔌")
+      } else {
+        const probs = Object.entries(data.results ?? {})
+          .filter(([, v]) => !(v as { ok: boolean }).ok)
+          .map(([k, v]) => `${k}: ${(v as { description?: string }).description ?? "Fehler"}`)
+          .join(" · ")
+        showFlash("err", `Konnte nicht alles verbinden — ${probs || "unbekannter Fehler"}`)
+      }
+    } catch {
+      showFlash("err", "Netzwerkfehler beim Verbinden.")
+    } finally {
+      setConnecting(false)
     }
   }
 
@@ -321,14 +371,24 @@ export default function RafaelPage() {
               <h2 className="text-white font-medium">
                 Rafaels Wissen <span className="text-gray-500 font-normal">({docs.length})</span>
               </h2>
-              <button
-                onClick={seedSystem}
-                disabled={seeding}
-                title="Lädt Rafael das komplette Wissen über dein Agency OS ein (Seiten, Posting-System, Threads, Mitarbeiter, Telegram). Jederzeit wiederholbar."
-                className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 px-3 py-1.5 rounded-lg transition-colors"
-              >
-                {seeding ? "Importiere…" : "📚 Agency-Wissen importieren"}
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={connectTelegram}
+                  disabled={connecting}
+                  title="Verbindet die Telegram-Bots (Rafael & Peter) mit dem Sicherheits-Secret. Einmal nach dem Aktivieren klicken."
+                  className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {connecting ? "Verbinde…" : "🔌 Telegram verbinden"}
+                </button>
+                <button
+                  onClick={seedSystem}
+                  disabled={seeding}
+                  title="Lädt Rafael das komplette Wissen über dein Agency OS ein (Seiten, Posting-System, Threads, Mitarbeiter, Telegram). Jederzeit wiederholbar."
+                  className="text-xs bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-200 px-3 py-1.5 rounded-lg transition-colors"
+                >
+                  {seeding ? "Importiere…" : "📚 Agency-Wissen importieren"}
+                </button>
+              </div>
             </div>
             {docs.length === 0 ? (
               <p className="text-gray-500 text-sm">Noch nichts gespeichert. Füttere ihn oben mit dem ersten Wissen.</p>

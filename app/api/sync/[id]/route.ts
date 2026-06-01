@@ -1,10 +1,16 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { isCronAuthorized, requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  if (!isCronAuthorized(request)) {
+    const auth = await requireAnyPageAccess(["social"])
+    if (auth.response) return auth.response
+  }
+
   const supabase = createServerClient()
   const { id } = await params
   const startedAt = new Date().toISOString()
@@ -76,7 +82,8 @@ export async function POST(
         )
         if (reelsRes.ok) {
           const reelsJson = await reelsRes.json()
-          const reels: any[] = reelsJson?.data?.items ?? reelsJson?.items ?? []
+          const reels: { play_count?: number; view_count?: number }[] =
+            reelsJson?.data?.items ?? reelsJson?.items ?? []
           totalViews = reels.reduce(
             (sum, reel) => sum + (reel?.play_count ?? reel?.view_count ?? 0),
             0
@@ -89,7 +96,9 @@ export async function POST(
       igData = { followers, posts, views: totalViews, externalId }
     }
   } catch (err: unknown) {
-    const cause = (err as any)?.cause?.message ?? (err as any)?.cause?.code ?? ""
+    const cause = err instanceof Error && err.cause instanceof Error
+      ? err.cause.message
+      : ""
     fetchError = err instanceof Error
       ? `${err.message}${cause ? ` (${cause})` : ""}`
       : String(err)
@@ -122,6 +131,7 @@ export async function POST(
   if (fetchError || !igData) {
     await supabase.from("sync_logs").insert({
       account_id:    id,
+      platform:      "instagram",
       status:        "error",
       triggered_by:  triggeredBy,
       error_message: fetchError ?? "No data returned",
@@ -161,6 +171,7 @@ export async function POST(
 
   await supabase.from("sync_logs").insert({
     account_id:        id,
+    platform:          "instagram",
     status:            "success",
     triggered_by:      triggeredBy,
     snapshots_written: 1,

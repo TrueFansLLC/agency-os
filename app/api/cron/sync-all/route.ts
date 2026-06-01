@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { isCronAuthorized } from "@/lib/supabase/auth-server"
 
 // Called once daily by Vercel Cron — syncs all Instagram + Facebook accounts.
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization")
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -75,7 +75,10 @@ export async function GET(request: Request) {
       try {
         const res = await fetch(`${baseUrl}/api/sync/${acc.id}`, {
           method: "POST",
-          headers: { "x-cron": "1" },
+          headers: {
+            "x-cron": "1",
+            authorization: `Bearer ${process.env.CRON_SECRET ?? ""}`,
+          },
         })
         if (res.ok) igSynced++
         else igFailed++
@@ -88,7 +91,10 @@ export async function GET(request: Request) {
       try {
         const res = await fetch(`${baseUrl}/api/facebook-sync/${acc.id}`, {
           method: "POST",
-          headers: { "x-cron": "1" },
+          headers: {
+            "x-cron": "1",
+            authorization: `Bearer ${process.env.CRON_SECRET ?? ""}`,
+          },
         })
         if (res.ok) fbSynced++
         else fbFailed++

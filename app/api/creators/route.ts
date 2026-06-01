@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function GET() {
+  const auth = await requireAnyPageAccess(["social", "content", "tracker"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from("creators")
@@ -13,6 +17,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAnyPageAccess(["social", "content", "tracker"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { name } = await request.json()
 

@@ -466,7 +466,7 @@ export default function PostingPlaner() {
           <div className="flex items-center justify-between mb-6">
             <div>
               <h2 className="text-white font-medium">Wartende Accounts</h2>
-              <p className="text-sm text-gray-400 mt-0.5">Content für Accounts die noch keinen Username haben. Sobald der Account aktiv ist → "Aktivieren".</p>
+              <p className="text-sm text-gray-400 mt-0.5">Content für Accounts die noch keinen Username haben. Sobald der Account aktiv ist → &quot;Aktivieren&quot;.</p>
             </div>
             <button onClick={() => setNewWaitModal(true)}
               className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-sm font-medium rounded-lg transition-colors">
@@ -478,7 +478,7 @@ export default function PostingPlaner() {
             <div className="text-center py-16 text-gray-500">
               <div className="text-4xl mb-3">⏳</div>
               <p className="font-medium text-gray-400">Keine wartenden Accounts</p>
-              <p className="text-sm mt-1">Klick "+ Neuer wartender Account" um Content für einen noch unbekannten Account vorzubereiten.</p>
+              <p className="text-sm mt-1">Klick &quot;+ Neuer wartender Account&quot; um Content für einen noch unbekannten Account vorzubereiten.</p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -736,7 +736,7 @@ export default function PostingPlaner() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-400 font-medium block mb-1.5">Platzhalter Name (z.B. "cathy-neues-branding")</label>
+                <label className="text-xs text-gray-400 font-medium block mb-1.5">Platzhalter Name (z.B. &quot;cathy-neues-branding&quot;)</label>
                 <input value={waitForm.account} onChange={e => setWaitForm(f => ({...f, account: e.target.value}))}
                   placeholder="cathy-neues-branding-1" className="bg-gray-800 border border-gray-700 text-white text-sm rounded-lg px-3 py-2 w-full focus:outline-none focus:border-gray-500 placeholder-gray-600"/>
               </div>
@@ -782,7 +782,7 @@ export default function PostingPlaner() {
           <div className="bg-gray-900 border border-gray-700 rounded-xl w-full max-w-md shadow-2xl" onClick={e => e.stopPropagation()}>
             <div className="px-5 py-4 border-b border-gray-800">
               <h2 className="text-white font-semibold">Account aktivieren</h2>
-              <p className="text-xs text-gray-400 mt-0.5">Platzhalter "@{activateModal.placeholder}" mit echtem Username ersetzen</p>
+              <p className="text-xs text-gray-400 mt-0.5">Platzhalter &quot;@{activateModal.placeholder}&quot; mit echtem Username ersetzen</p>
             </div>
             <div className="px-5 py-5 space-y-4">
               <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-300">

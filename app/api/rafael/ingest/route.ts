@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { YoutubeTranscript } from "youtube-transcript"
+import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 // Splits long text into ~1000-character chunks, breaking on paragraph/sentence
 // boundaries so each chunk stays readable. Raphael searches these chunks.
@@ -44,6 +45,9 @@ function youtubeId(url: string): string | null {
 }
 
 export async function POST(req: Request) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
 
   let body: {

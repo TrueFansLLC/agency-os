@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function GET(request: NextRequest) {
+  const auth = await requireAnyPageAccess(["posting-planer"])
+  if (auth.response) return auth.response
+
   const { searchParams } = new URL(request.url)
   const from   = searchParams.get("from")
   const to     = searchParams.get("to")
@@ -19,6 +23,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAnyPageAccess(["posting-planer"])
+  if (auth.response) return auth.response
+
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ error: "Invalid body" }, { status: 400 })
 

@@ -42,7 +42,6 @@ create table if not exists public.raphael_messages (
 create index if not exists raphael_messages_created_idx
   on public.raphael_messages (created_at);
 
--- This project runs with RLS disabled; grant access like the other tables.
-grant all on public.raphael_documents to service_role, anon;
-grant all on public.raphael_chunks    to service_role, anon;
-grant all on public.raphael_messages  to service_role, anon;
+grant all on public.raphael_documents to service_role;
+grant all on public.raphael_chunks    to service_role;
+grant all on public.raphael_messages  to service_role;

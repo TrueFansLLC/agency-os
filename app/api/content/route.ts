@@ -1,10 +1,14 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { ContentItem } from "@/types/content"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 // ── GET /api/content ──────────────────────────────────────────────────────────
 // Returns all content items with creator/market/account joins and latest metrics.
 export async function GET() {
+  const auth = await requireAnyPageAccess(["content"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
 
   const { data: rows, error } = await supabase
@@ -51,11 +55,11 @@ export async function GET() {
     return {
       id:                   r.id,
       creatorId:            r.creator_id ?? null,
-      creatorName:          (r.creator as any)?.name ?? "",
+      creatorName:          (r.creator as { name?: string } | null)?.name ?? "",
       marketId:             r.market_id ?? null,
-      market:               (r.market as any)?.name ?? "",
+      market:               (r.market as { name?: string } | null)?.name ?? "",
       instagramAccountId:   r.instagram_account_id ?? null,
-      instagramUsername:    (r.account as any)?.username ?? "",
+      instagramUsername:    (r.account as { username?: string } | null)?.username ?? "",
       platform:             r.platform,
       contentType:          r.content_type,
       originalUrl:          r.original_url,
@@ -93,6 +97,9 @@ export async function GET() {
 // ── POST /api/content ─────────────────────────────────────────────────────────
 // Manually add a content item (e.g. from a paste of an Instagram URL).
 export async function POST(request: Request) {
+  const auth = await requireAnyPageAccess(["content"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const body = await request.json()
 

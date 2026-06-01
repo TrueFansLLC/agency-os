@@ -1,6 +1,9 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
+import { ingestDocument, youtubeId } from "@/lib/rafaelBrain"
+import { YoutubeTranscript } from "youtube-transcript"
+import { isTelegramWebhookAuthorized } from "@/lib/supabase/auth-server"
 // Trello removed — tasks now in Supabase
 
 const TOKEN         = process.env.RAFAEL_BOT_TOKEN ?? ""
@@ -13,6 +16,14 @@ async function send(chatId: string, text: string) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ chat_id: chatId, text, parse_mode: "HTML" }),
   })
+}
+
+// Builds a direct download URL for a file Elijah sent in Telegram.
+async function tgFileUrl(fileId: string): Promise<string | null> {
+  const res  = await fetch(`https://api.telegram.org/bot${TOKEN}/getFile?file_id=${fileId}`)
+  const data = await res.json()
+  if (!data.ok) return null
+  return `https://api.telegram.org/file/bot${TOKEN}/${data.result.file_path}`
 }
 
 async function loadContext(supabase: ReturnType<typeof createServerClient>) {
@@ -91,7 +102,11 @@ ${employees?.map(e => `  ${e.telegram_chat_id ? "🟢" : "🔴"} ${e.name} (${e.
 `
 }
 
-async function askClaude(question: string, context: string): Promise<string> {
+async function askClaude(
+  question: string,
+  context: string,
+  history: { role: "user" | "assistant"; content: string }[] = []
+): Promise<string> {
   const res = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: {
@@ -107,13 +122,15 @@ Antworte immer auf Deutsch, präzise und handlungsorientiert.
 Heute: ${new Date().toLocaleDateString("de-DE", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}.
 Nutze HTML-Formatierung für Telegram (<b>fett</b>, keine Markdown).
 
+DEIN GEDÄCHTNIS-SPEICHER: Du hast ein dauerhaftes, durchsuchbares Langzeit-Gedächtnis, das Elijah selbst füttert (Notizen, PDFs, YouTube-Transkripte) — sein "Second Brain". Bei jeder Frage wird dieser Speicher automatisch durchsucht; passende Treffer erscheinen weiter unten unter "WISSENSSPEICHER". Wenn dort etwas steht, nutze es als deine Wahrheit. Sage NIEMALS, du hättest keinen Datenbankzugriff oder würdest Dinge vergessen — dein Business-Wissen, die Live-Daten und alles von Elijah Gefütterte bleiben dauerhaft erhalten. Du erinnerst dich auch an euren bisherigen Gesprächsverlauf.
+
 ${PRIVACY_RULES}
 
 ${BUSINESS_CONTEXT}
 
 LIVE-DATEN:
 ${context}`,
-      messages: [{ role: "user", content: question }],
+      messages: [...history, { role: "user", content: question }],
     }),
   })
   const data = await res.json()
@@ -144,6 +161,10 @@ async function searchKnowledge(
 }
 
 export async function POST(request: NextRequest) {
+  if (!isTelegramWebhookAuthorized(request, process.env.RAFAEL_WEBHOOK_SECRET)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const body = await request.json().catch(() => null)
   if (!body?.message) return NextResponse.json({ ok: true })
 
@@ -161,15 +182,91 @@ export async function POST(request: NextRequest) {
 
   if (text.startsWith("/start")) {
     await send(chatId,
-      `👋 Hey ${firstName}! Ich bin <b>Rafael</b> — dein AI-Assistent.\n\nIch habe Zugriff auf:\n• Instagram & Facebook Accounts (Follower, Views)\n• Posts & Completion Rate\n• Mitarbeiter & Zuständigkeiten\n• Account-Probleme in Echtzeit\n\nStell mir einfach eine Frage auf Deutsch.\n\nBeispiele:\n• "Wie läuft der Betrieb heute?"\n• "Welcher Account hat die meisten Views diese Woche?"\n• "Was hat Peter heute gemeldet?"\n\nOder tippe /hilfe.`
+      `👋 Hey ${firstName}! Ich bin <b>Rafael</b> — dein AI-Assistent &amp; Second Brain.\n\nIch habe Zugriff auf:\n• Instagram & Facebook Accounts (Follower, Views)\n• Posts & Completion Rate\n• Mitarbeiter & Zuständigkeiten\n• Account-Probleme in Echtzeit\n• Alles, was du mir fütterst (dauerhaft gemerkt) 🧠\n\nStell mir einfach eine Frage auf Deutsch.\n\n🧠 <b>Neu — merk dir alles:</b>\n• <code>/merke &lt;Text&gt;</code>\n• Schick mir ein PDF oder einen YouTube-Link\n\nTippe /hilfe für alle Befehle.`
     )
     return NextResponse.json({ ok: true })
   }
 
   if (text.startsWith("/hilfe")) {
     await send(chatId,
-      `📋 <b>Rafael Befehle</b>\n\n/status — Account-Probleme\n/posts — Posts heute\n/mitarbeiter — Team-Übersicht\n/report — Tages-Report\n\n💬 Oder stell mir direkt eine Frage — ich nutze deine Live-Daten um zu antworten.`
+      `📋 <b>Rafael Befehle</b>\n\n/status — Account-Probleme\n/posts — Posts heute\n/mitarbeiter — Team-Übersicht\n/report — Tages-Report\n\n🧠 <b>Mir etwas merken (für immer):</b>\n• <code>/merke &lt;Text&gt;</code> — oder schreib „merk dir: …"\n• Schick mir ein <b>PDF</b> oder eine Textdatei\n• Schick mir einen <b>YouTube-Link</b> → ich speichere das Transkript\n\n💬 Oder stell mir einfach eine Frage — ich nutze deine Live-Daten und alles Gemerkte.`
     )
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Dokument (PDF / Textdatei) → dauerhaft ins Gedächtnis ──
+  if (message.document) {
+    const file     = message.document
+    const fileName = (file.file_name ?? "Dokument") as string
+    const mime     = (file.mime_type ?? "") as string
+    const isPdf    = mime === "application/pdf" || /\.pdf$/i.test(fileName)
+    const isText   = mime.startsWith("text/") || /\.(txt|md|csv)$/i.test(fileName)
+    if (!isPdf && !isText) {
+      await send(chatId, "📎 Diesen Dateityp kann ich noch nicht lesen — schick mir PDF oder Textdateien.")
+      return NextResponse.json({ ok: true })
+    }
+    await send(chatId, "📥 Lese die Datei…")
+    try {
+      const url = await tgFileUrl(file.file_id)
+      if (!url) { await send(chatId, "⚠️ Konnte die Datei nicht laden."); return NextResponse.json({ ok: true }) }
+      const buf = Buffer.from(await (await fetch(url)).arrayBuffer())
+      let content = ""
+      if (isPdf) {
+        const { PDFParse } = await import("pdf-parse")
+        const parser = new PDFParse({ data: buf })
+        try {
+          content = (await parser.getText()).text
+        } finally {
+          await parser.destroy()
+        }
+      } else {
+        content = buf.toString("utf8")
+      }
+      const title = ((message.caption as string) ?? fileName).replace(/\.(pdf|txt|md|csv)$/i, "").trim()
+      const r = await ingestDocument(supabase, { title, source_type: isPdf ? "pdf" : "text", text: content })
+      await send(chatId, r.ok
+        ? `✅ Gespeichert: <b>${title}</b> (${r.chunks} Häppchen). Das merke ich mir dauerhaft. 🧠`
+        : `⚠️ ${r.error}`)
+    } catch {
+      await send(chatId, "⚠️ Aus dieser Datei konnte ich keinen Text lesen (evtl. ein gescanntes Bild-PDF).")
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── "/merke …" oder "merk dir: …" → Notiz dauerhaft speichern ──
+  const saveMatch = text.match(/^\/(?:merke?|lerne?|speichere?|remember)\b[:\s]*([\s\S]*)$/i)
+    ?? text.match(/^(?:merk(?:e)? dir|speicher(?:e)? dir|lern(?:e)? dir)[:\s]+([\s\S]*)$/i)
+  if (saveMatch) {
+    const content = (saveMatch[1] ?? "").trim()
+    if (content.length < 3) {
+      await send(chatId, "✍️ Sag mir, was ich mir merken soll, z.B.:\n<code>/merke Mein bestes Format ist das Speaking-Reel mit Farm-Branding.</code>")
+      return NextResponse.json({ ok: true })
+    }
+    const title = content.slice(0, 60) + (content.length > 60 ? "…" : "")
+    const r = await ingestDocument(supabase, { title, source_type: "note", text: content })
+    await send(chatId, r.ok ? `✅ Gemerkt: <b>${title}</b> 🧠` : `⚠️ ${r.error}`)
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── Reiner YouTube-Link → Transkript dauerhaft speichern ──
+  const ytOnly = /^https?:\/\/\S+$/.test(text) ? youtubeId(text) : null
+  if (ytOnly) {
+    await send(chatId, "▶️ Hole das Transkript…")
+    try {
+      let parts: { text: string }[] = []
+      try { parts = await YoutubeTranscript.fetchTranscript(ytOnly, { lang: "de" }) }
+      catch { parts = await YoutubeTranscript.fetchTranscript(ytOnly) }
+      const transcript = parts.map((p) => p.text).join(" ").replace(/\s+/g, " ").trim()
+      const r = await ingestDocument(supabase, {
+        title: `YouTube-Video ${ytOnly}`,
+        source_type: "youtube",
+        source_url: text,
+        text: transcript,
+      })
+      await send(chatId, r.ok ? `✅ YouTube-Transkript gemerkt (${r.chunks} Häppchen). 🧠` : `⚠️ ${r.error}`)
+    } catch {
+      await send(chatId, "⚠️ Konnte das Transkript nicht laden (Video hat evtl. keine Untertitel).")
+    }
     return NextResponse.json({ ok: true })
   }
 
@@ -248,14 +345,37 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
-  // Freitext → Claude mit vollem Kontext
+  // Freitext → Claude mit vollem Kontext + Gesprächs-Gedächtnis
   if (text && !text.startsWith("/")) {
     await send(chatId, "🤔 Einen Moment...")
     const { data: tasks } = await supabase.from("tasks").select("title, assignee, status").neq("status", "erledigt").limit(20)
     const taskCtx = tasks?.length ? `\nOFFENE TASKS:\n${tasks.map(t => `- ${t.title} (${t.assignee}, ${t.status})`).join("\n")}` : ""
     const knowledge = await searchKnowledge(supabase, text)
-    const answer  = await askClaude(text, context + taskCtx + knowledge)
+
+    // Letzte Telegram-Unterhaltung als Gedächtnis (getrennt vom Web-Chat per channel).
+    let history: { role: "user" | "assistant"; content: string }[] = []
+    try {
+      const { data: past } = await supabase
+        .from("raphael_messages")
+        .select("role, content")
+        .eq("channel", "telegram")
+        .order("created_at", { ascending: false })
+        .limit(12)
+      history = (past ?? [])
+        .reverse()
+        .map((m) => ({ role: m.role === "assistant" ? ("assistant" as const) : ("user" as const), content: m.content }))
+    } catch {
+      // channel-Spalte evtl. noch nicht vorhanden → ohne Verlauf weiter
+    }
+
+    const answer = await askClaude(text, context + taskCtx + knowledge, history)
     await send(chatId, answer)
+
+    // Unterhaltung dauerhaft merken (Fehler ignorieren, falls Spalte noch fehlt).
+    await supabase.from("raphael_messages").insert([
+      { role: "user", content: text, channel: "telegram" },
+      { role: "assistant", content: answer, channel: "telegram" },
+    ])
     return NextResponse.json({ ok: true })
   }
 

@@ -1,7 +1,11 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAnyPageAccess(["tracker", "posting-planer", "social", "employees"])
+  if (auth.response) return auth.response
+
   const { id } = await params
   const body = await request.json()
   const supabase = createServerClient()
@@ -18,6 +22,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 }
 
 export async function DELETE(_: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const auth = await requireAnyPageAccess(["tracker", "posting-planer", "social", "employees"])
+  if (auth.response) return auth.response
+
   const { id } = await params
   const supabase = createServerClient()
 

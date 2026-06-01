@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage } from "@/lib/telegram"
+import { isCronAuthorized } from "@/lib/supabase/auth-server"
 
 const FOLLOWUP_AFTER_MS    = 30 * 60 * 1000
 const OWNER_ALERT_AFTER_MS = 60 * 60 * 1000
@@ -25,8 +26,7 @@ type EmpSummary = { chatId: string; posts: DispatchedPost[] }
 type EmpTask = { name: string; platform: "Instagram" | "Facebook" }
 
 export async function GET(request: Request) {
-  const authHeader = request.headers.get("authorization")
-  if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

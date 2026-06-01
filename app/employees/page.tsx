@@ -100,9 +100,8 @@ function EmpModal({ employee, onClose, onSave, onDelete }: {
   )
 }
 
-function ArchiveModal({ pair, employeeName, onClose, onArchive }: {
+function ArchiveModal({ pair, onClose, onArchive }: {
   pair: Pair
-  employeeName: string
   onClose: () => void
   onArchive: (reason: string) => Promise<void>
 }) {
@@ -462,7 +461,6 @@ export default function EmployeesPage() {
       {archiveTarget && selected && (
         <ArchiveModal
           pair={archiveTarget}
-          employeeName={selected}
           onClose={() => setArchiveTarget(null)}
           onArchive={handleArchive}
         />

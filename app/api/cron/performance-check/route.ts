@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { rafaelAlert } from "@/lib/rafael"
+import { isCronAuthorized } from "@/lib/supabase/auth-server"
 
 // Thresholds
 const VIRAL_MULTIPLIER       = 3.0  // 3x above average = viral signal
@@ -12,10 +13,7 @@ const NEW_STRONG_VIEWS       = 5000 // new account: 5k+ views in first week = st
 const NEW_STRUGGLING_POSTS   = 7    // after 7 posts with poor numbers = struggling
 
 export async function GET(request: Request) {
-  const force = new URL(request.url).searchParams.get("force") === "true"
-  const auth  = request.headers.get("authorization")
-
-  if (auth !== `Bearer ${process.env.CRON_SECRET}` && !force) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 
@@ -23,7 +21,6 @@ export async function GET(request: Request) {
   const now       = new Date()
   const today     = now.toISOString().slice(0, 10)
   const day7ago   = new Date(Date.now() - 7  * 864e5).toISOString().slice(0, 10)
-  const day14ago  = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10)
   const day30ago  = new Date(Date.now() - 30 * 864e5).toISOString().slice(0, 10)
 
   const alerts: string[] = []

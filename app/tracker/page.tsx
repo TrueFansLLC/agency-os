@@ -522,7 +522,7 @@ export default function TrackerPage() {
           {pairs.length === 0 ? (
             <div className="border border-gray-800 border-dashed rounded-2xl p-20 text-center">
               <p className="text-white font-medium mb-2">No accounts yet</p>
-              <p className="text-gray-500 text-sm mb-6">Click "Add Account Pair" to add your first Instagram + Facebook pair</p>
+              <p className="text-gray-500 text-sm mb-6">Click &quot;Add Account Pair&quot; to add your first Instagram + Facebook pair</p>
               <button onClick={() => setModal({ mode: "add" })}
                 className="px-5 py-2.5 bg-white text-gray-950 font-medium rounded-lg text-sm">
                 Add Account Pair

@@ -52,5 +52,5 @@ CREATE INDEX IF NOT EXISTS idx_threads_batches_date    ON threads_daily_batches(
 CREATE INDEX IF NOT EXISTS idx_threads_batches_status  ON threads_daily_batches(status);
 
 -- ── Permissions ───────────────────────────────────────────────
-GRANT ALL ON threads_accounts      TO service_role, anon;
-GRANT ALL ON threads_daily_batches TO service_role, anon;
+GRANT ALL ON threads_accounts      TO service_role;
+GRANT ALL ON threads_daily_batches TO service_role;

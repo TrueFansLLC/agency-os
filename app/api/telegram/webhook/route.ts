@@ -2,10 +2,15 @@ import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage, editMessage, answerCallback, editMessageKeyboard } from "@/lib/telegram"
 import { alertAccountStatus } from "@/lib/rafael"
+import { isTelegramWebhookAuthorized } from "@/lib/supabase/auth-server"
 
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 
 export async function POST(request: NextRequest) {
+  if (!isTelegramWebhookAuthorized(request, process.env.TELEGRAM_WEBHOOK_SECRET)) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  }
+
   const body = await request.json().catch(() => null)
   if (!body) return NextResponse.json({ ok: true })
 

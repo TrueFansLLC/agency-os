@@ -1,8 +1,12 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { FbAccount, FbDailySnapshot } from "@/types/facebook"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 export async function GET() {
+  const auth = await requireAnyPageAccess(["social"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
 
   const { data: accounts, error: accErr } = await supabase
@@ -47,8 +51,8 @@ export async function GET() {
     pageHandle:       a.page_handle,
     pageName:         a.page_name ?? "",
     creatorId:        a.creator_id ?? "",
-    creatorName:      (a.creator as any)?.name ?? "",
-    market:           (a.market  as any)?.name ?? "",
+    creatorName:      (a.creator as { name?: string } | null)?.name ?? "",
+    market:           (a.market as { name?: string } | null)?.name ?? "",
     status:           a.status,
     connectionStatus: a.connection_status,
     performanceLabel: a.performance_label,
@@ -62,6 +66,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
+  const auth = await requireAnyPageAccess(["social"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const body     = await request.json()
 

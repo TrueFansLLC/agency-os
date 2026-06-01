@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { InstagramAccount, DailySnapshot } from "@/types/instagram"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 // ── GET /api/accounts ─────────────────────────────────────────────
 // Returns all non-archived accounts with creator/market names and
 // the last 35 days of snapshots — exactly what the dashboard needs.
 export async function GET() {
+  const auth = await requireAnyPageAccess(["social"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
 
   const { data: accounts, error: accErr } = await supabase
@@ -49,8 +53,8 @@ export async function GET() {
     id:                   a.id,
     username:             a.username,
     creatorId:            a.creator_id ?? "",
-    creatorName:          (a.creator as any)?.name ?? "",
-    market:               (a.market as any)?.name ?? "",
+    creatorName:          (a.creator as { name?: string } | null)?.name ?? "",
+    market:               (a.market as { name?: string } | null)?.name ?? "",
     status:               a.status,
     connectionStatus:     a.connection_status,
     dataSource:           a.data_source,
@@ -70,6 +74,9 @@ export async function GET() {
 // Creates a new Instagram account. Finds or creates the creator and
 // market automatically — frontend just sends names as strings.
 export async function POST(request: Request) {
+  const auth = await requireAnyPageAccess(["social"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const body = await request.json()
 

@@ -25,6 +25,20 @@ export interface PostingEntry {
   uhrzeit:   string | null  // "09:00"
 }
 
+type NotionPage = {
+  id: string
+  properties: Record<
+    string,
+    {
+      title?: { plain_text?: string }[]
+      rich_text?: { plain_text?: string }[]
+      url?: string
+      select?: { name?: string }
+      date?: { start?: string }
+    }
+  >
+}
+
 async function queryDb(dbId: string): Promise<PostingEntry[]> {
   const res = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
     method: "POST",
@@ -39,7 +53,7 @@ async function queryDb(dbId: string): Promise<PostingEntry[]> {
     return []
   }
   const data = await res.json()
-  return (data.results ?? []).map((page: any) => ({
+  return ((data.results ?? []) as NotionPage[]).map((page) => ({
     id:        page.id,
     post:      page.properties.Post?.title?.[0]?.plain_text ?? "",
     caption:   page.properties.Caption?.rich_text?.[0]?.plain_text ?? "",

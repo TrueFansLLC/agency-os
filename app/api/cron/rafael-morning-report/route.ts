@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { BUSINESS_CONTEXT, PRIVACY_RULES } from "@/lib/rafael"
+import { isCronAuthorized } from "@/lib/supabase/auth-server"
 
 const TOKEN         = process.env.RAFAEL_BOT_TOKEN ?? ""
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
@@ -15,10 +16,7 @@ async function send(text: string) {
 }
 
 export async function GET(request: Request) {
-  const force = new URL(request.url).searchParams.get("force") === "true"
-  const auth  = request.headers.get("authorization")
-
-  if (auth !== `Bearer ${process.env.CRON_SECRET}` && !force) {
+  if (!isCronAuthorized(request)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   }
 

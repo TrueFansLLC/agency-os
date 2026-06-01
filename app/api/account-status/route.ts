@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 export async function GET() {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from("account_pairs")
@@ -13,6 +17,9 @@ export async function GET() {
 }
 
 export async function PATCH(request: Request) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const { id } = await request.json()
   if (!id) return NextResponse.json({ error: "Missing id" }, { status: 400 })
 

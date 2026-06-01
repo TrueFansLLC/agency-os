@@ -1,9 +1,13 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
 
 // POST /api/facebook-accounts/import
 // Reads all non-archived account_pairs with fb_username and upserts into facebook_accounts.
 export async function POST() {
+  const auth = await requireAnyPageAccess(["social"])
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
 
   const { data: pairs, error: pairsErr } = await supabase

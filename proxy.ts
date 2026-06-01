@@ -2,17 +2,31 @@ import { createServerClient } from "@supabase/ssr"
 import { NextResponse, type NextRequest } from "next/server"
 
 // Pages that are always public (no auth needed)
-const PUBLIC_PATHS = ["/login", "/auth", "/set-password", "/unauthorized", "/api/cron", "/api/telegram", "/api/rafael/webhook", "/api/accounts", "/api/accounts/import", "/api/creators", "/api/markets", "/api/fal-test"]
+const PUBLIC_PATHS = ["/login", "/auth", "/set-password", "/unauthorized", "/api/cron", "/api/telegram/webhook", "/api/rafael/webhook", "/api/sync", "/api/facebook-sync", "/api/fal-test", "/api/threads/generate"]
 
 // Pages that require admin role
-const ADMIN_ONLY = ["/settings", "/employees", "/revenue", "/team", "/account-status"]
+const ADMIN_ONLY = ["/admin", "/settings", "/employees", "/revenue", "/team", "/account-status", "/creators", "/rafael", "/tasks", "/threads"]
 
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
+  const path = request.nextUrl.pathname
+  const isPublic = PUBLIC_PATHS.some(
+    prefix => path === prefix || path.startsWith(`${prefix}/`)
+  )
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL
+  const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+
+  if (!supabaseUrl || !supabaseAnonKey) {
+    if (isPublic) return supabaseResponse
+
+    const url = request.nextUrl.clone()
+    url.pathname = "/login"
+    return NextResponse.redirect(url)
+  }
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseAnonKey,
     {
       cookies: {
         getAll() { return request.cookies.getAll() },
@@ -28,9 +42,6 @@ export async function proxy(request: NextRequest) {
   )
 
   const { data: { user } } = await supabase.auth.getUser()
-  const path = request.nextUrl.pathname
-
-  const isPublic = PUBLIC_PATHS.some(p => path.startsWith(p))
 
   // Not logged in → login
   if (!user && !isPublic) {
@@ -50,10 +61,22 @@ export async function proxy(request: NextRequest) {
     const role          = user.user_metadata?.role as string | undefined
     const allowedPages  = (user.user_metadata?.allowed_pages ?? []) as string[]
     const isEmployee    = role === "employee"
+    const isAdminOnly   = path === "/" || ADMIN_ONLY.some(
+      prefix => path === prefix || path.startsWith(`${prefix}/`)
+    )
+
+    if (isAdminOnly && role !== "admin") {
+      const url = request.nextUrl.clone()
+      url.pathname = allowedPages[0] ? `/${allowedPages[0]}` : "/unauthorized"
+      return NextResponse.redirect(url)
+    }
+
+    // API routes perform their own authorization close to the data access.
+    if (path.startsWith("/api/")) return supabaseResponse
 
     if (isEmployee) {
       // Employees never see admin-only pages
-      if (ADMIN_ONLY.some(p => path.startsWith(p))) {
+      if (isAdminOnly) {
         const url = request.nextUrl.clone()
         url.pathname = allowedPages[0] ? `/${allowedPages[0]}` : "/unauthorized"
         return NextResponse.redirect(url)

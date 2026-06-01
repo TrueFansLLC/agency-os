@@ -1,7 +1,11 @@
 import { createClient } from "@supabase/supabase-js"
 import { NextResponse, type NextRequest } from "next/server"
+import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 export async function POST(request: NextRequest) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const { email, name, allowed_pages } = await request.json()
 
   if (!email || typeof email !== "string") {

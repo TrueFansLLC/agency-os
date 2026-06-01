@@ -2,7 +2,7 @@
 
 import { useState } from "react"
 import { useRouter } from "next/navigation"
-import { createAuthClient } from "@/lib/supabase/auth-browser"
+import { createAuthClient, hasAuthConfig } from "@/lib/supabase/auth-browser"
 
 export default function SetPasswordPage() {
   const router = useRouter()
@@ -25,6 +25,12 @@ export default function SetPasswordPage() {
     }
 
     setLoading(true)
+    if (!hasAuthConfig()) {
+      setError("Supabase ist lokal noch nicht konfiguriert.")
+      setLoading(false)
+      return
+    }
+
     const supabase = createAuthClient()
     const { error: updateError } = await supabase.auth.updateUser({ password })
 

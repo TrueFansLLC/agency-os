@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
+import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 // One-click seeding of Rafael's memory with the documented Agency OS system knowledge.
 // Re-runnable: deletes previously seeded "[System]" docs first, so it never duplicates.
@@ -131,6 +132,9 @@ Wichtig: Was Elijah auf der Web-Seite füttert, weißt du auch in Telegram (geme
 ]
 
 export async function POST() {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
   const supabase = createServerClient()
   const results: { title: string; chunks: number }[] = []
 
