@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { requireAnyPageAccess } from "@/lib/supabase/auth-server"
+import { normalizeThreadsAccountAssignment } from "@/lib/threads-employees"
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAnyPageAccess(["tracker", "posting-planer"])
@@ -9,9 +10,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const { id } = await params
   const body = await request.json()
   const supabase = createServerClient()
+  let payload
+  try {
+    payload = await normalizeThreadsAccountAssignment(supabase, body)
+  } catch (error) {
+    return NextResponse.json(
+      { error: error instanceof Error ? error.message : "Ungültige Mitarbeiter-Zuordnung." },
+      { status: 400 }
+    )
+  }
   const { data, error } = await supabase
     .from("threads_accounts")
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update({ ...payload, updated_at: new Date().toISOString() })
     .eq("id", id)
     .select()
     .single()

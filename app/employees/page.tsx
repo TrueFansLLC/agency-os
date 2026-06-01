@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect, useMemo } from "react"
+import type { ThreadsAccount } from "@/types/threads"
 
 type Employee = {
   id: string
@@ -8,6 +9,8 @@ type Employee = {
   devices: number
   notes: string | null
   platform: string | null
+  telegram_chat_id: string | null
+  telegram_threads_thread_id: number | null
   created_at: string
 }
 
@@ -38,16 +41,23 @@ const ARCHIVE_REASONS = [
   "Anderer Grund",
 ]
 
-const EMPTY_EMP = { name: "", devices: 0, notes: "" }
+const EMPTY_EMP = { name: "", devices: 0, notes: "", telegram_chat_id: "", telegram_threads_thread_id: "" }
 
-function EmpModal({ employee, onClose, onSave, onDelete }: {
+function EmpModal({ employee, platform, onClose, onSave, onDelete }: {
   employee: Employee | null
+  platform: "ig_fb" | "threads"
   onClose: () => void
   onSave: (data: typeof EMPTY_EMP) => Promise<void>
   onDelete?: () => Promise<void>
 }) {
   const isNew = !employee?.id
-  const [form, setForm] = useState({ name: employee?.name ?? "", devices: employee?.devices ?? 0, notes: employee?.notes ?? "" })
+  const [form, setForm] = useState({
+    name: employee?.name ?? "",
+    devices: employee?.devices ?? 0,
+    notes: employee?.notes ?? "",
+    telegram_chat_id: employee?.telegram_chat_id ?? "",
+    telegram_threads_thread_id: employee?.telegram_threads_thread_id ? String(employee.telegram_threads_thread_id) : "",
+  })
   const [saving, setSaving] = useState(false)
 
   return (
@@ -66,14 +76,39 @@ function EmpModal({ employee, onClose, onSave, onDelete }: {
             <input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Davide"
               className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
           </div>
-          <div>
-            <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Number of Devices</label>
-            <input type="number" min={0} value={form.devices} onChange={e => setForm(f => ({ ...f, devices: Number(e.target.value) }))}
-              className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-gray-500"/>
-            {form.devices > 0 && (
-              <p className="text-gray-600 text-xs mt-1">Max Instagram capacity: {form.devices * 2} accounts ({form.devices} × 2)</p>
-            )}
-          </div>
+          {platform === "threads" ? (
+            <div className="rounded-lg border border-blue-900/60 bg-blue-950/30 px-4 py-3">
+              <p className="text-blue-200 text-sm font-medium">Telegram automatisch verbinden</p>
+              <p className="text-blue-200/70 text-xs mt-1">
+                Im gewünschten Threads-Topic <code>/threadssetup {form.name || "Name"}</code> senden. Die Felder unten werden dann automatisch gesetzt.
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Number of Devices</label>
+              <input type="number" min={0} value={form.devices} onChange={e => setForm(f => ({ ...f, devices: Number(e.target.value) }))}
+                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-gray-500"/>
+              {form.devices > 0 && (
+                <p className="text-gray-600 text-xs mt-1">Max Instagram capacity: {form.devices * 2} accounts ({form.devices} × 2)</p>
+              )}
+            </div>
+          )}
+          {platform === "threads" && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Telegram Chat ID</label>
+                <input value={form.telegram_chat_id} onChange={e => setForm(f => ({ ...f, telegram_chat_id: e.target.value }))}
+                  placeholder="-100..."
+                  className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Threads Topic ID</label>
+                <input inputMode="numeric" value={form.telegram_threads_thread_id} onChange={e => setForm(f => ({ ...f, telegram_threads_thread_id: e.target.value }))}
+                  placeholder="123"
+                  className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+              </div>
+            </div>
+          )}
           <div>
             <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Notes</label>
             <textarea value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} rows={3}
@@ -95,6 +130,62 @@ function EmpModal({ employee, onClose, onSave, onDelete }: {
             {saving ? "Saving…" : isNew ? "Add Employee" : "Save"}
           </button>
         </div>
+      </div>
+    </div>
+  )
+}
+
+function ThreadsEmployeeDetails({ employee, accounts }: { employee: Employee; accounts: ThreadsAccount[] }) {
+  const telegramReady = Boolean(employee.telegram_chat_id)
+  const topicReady = Number.isInteger(employee.telegram_threads_thread_id)
+  const ready = telegramReady && topicReady
+
+  return (
+    <div className="space-y-5">
+      <div className={`rounded-xl border px-5 py-4 ${ready ? "border-emerald-800/60 bg-emerald-950/20" : "border-amber-800/60 bg-amber-950/20"}`}>
+        <p className={`font-semibold ${ready ? "text-emerald-300" : "text-amber-300"}`}>
+          {ready ? "✓ Bereit für automatischen Threads-Versand" : "⚠️ Threads-Onboarding noch nicht vollständig"}
+        </p>
+        {!ready && (
+          <p className="text-amber-200/70 text-sm mt-2">
+            Öffne das gewünschte Telegram-Topic und sende <code>/threadssetup {employee.name}</code>. Danach werden bestehende Accounts mit dem Namen automatisch verbunden.
+          </p>
+        )}
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <div className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3">
+          <p className="text-xs text-gray-500">Telegram-Gruppe</p>
+          <p className={`text-sm font-medium mt-1 ${telegramReady ? "text-emerald-400" : "text-amber-400"}`}>{telegramReady ? "Verbunden" : "Fehlt"}</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3">
+          <p className="text-xs text-gray-500">Threads-Topic</p>
+          <p className={`text-sm font-medium mt-1 ${topicReady ? "text-emerald-400" : "text-amber-400"}`}>{topicReady ? "Eingerichtet" : "Fehlt"}</p>
+        </div>
+      </div>
+
+      <div>
+        <h2 className="text-white font-semibold mb-4">
+          {employee.name}&apos;s Threads Accounts
+          <span className="text-gray-500 font-normal text-sm ml-2">({accounts.length})</span>
+        </h2>
+        {accounts.length === 0 ? (
+          <p className="text-gray-500 text-sm">Noch keine Threads-Accounts zugewiesen.</p>
+        ) : (
+          <div className="space-y-2">
+            {accounts.map(account => (
+              <div key={account.id} className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-white text-sm font-medium">@{account.username}</p>
+                  <p className="text-gray-500 text-xs mt-0.5">{account.creator}{account.branding ? ` · ${account.branding}` : ""}</p>
+                </div>
+                <span className={`text-xs rounded-full border px-2.5 py-1 ${account.status === "active" ? "border-emerald-800 text-emerald-300" : "border-gray-700 text-gray-400"}`}>
+                  {account.status}
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )
@@ -152,6 +243,7 @@ export default function EmployeesPage() {
   const [employees,      setEmployees]      = useState<Employee[]>([])
   const [pairs,          setPairs]          = useState<Pair[]>([])
   const [archivedPairs,  setArchivedPairs]  = useState<Pair[]>([])
+  const [threadsAccounts, setThreadsAccounts] = useState<ThreadsAccount[]>([])
   const [loading,        setLoading]        = useState(true)
   const [modal,          setModal]          = useState<{ mode: "add" } | { mode: "edit"; employee: Employee } | null>(null)
   const [selected,       setSelected]       = useState<string | null>(null)
@@ -162,15 +254,17 @@ export default function EmployeesPage() {
 
   async function load() {
     setLoading(true)
-    const [empRes, pairRes, archRes] = await Promise.all([
-      fetch("/api/employees"),
+    const [empRes, pairRes, archRes, threadsRes] = await Promise.all([
+      fetch("/api/employees?details=1"),
       fetch("/api/creator-accounts"),
       fetch("/api/creator-accounts?archived=1"),
+      fetch("/api/threads-accounts"),
     ])
-    const [emps, prs, arch] = await Promise.all([empRes.json(), pairRes.json(), archRes.json()])
+    const [emps, prs, arch, threads] = await Promise.all([empRes.json(), pairRes.json(), archRes.json(), threadsRes.json()])
     setEmployees(Array.isArray(emps) ? emps : [])
     setPairs(Array.isArray(prs) ? prs : [])
     setArchivedPairs(Array.isArray(arch) ? arch : [])
+    setThreadsAccounts(Array.isArray(threads) ? threads : [])
     setLoading(false)
   }
 
@@ -199,14 +293,28 @@ export default function EmployeesPage() {
     )
   }, [selected, archivedPairs])
 
+  const selectedEmployee = employees.find(employee => employee.name === selected) ?? null
+  const selectedThreadsAccounts = useMemo(() => {
+    if (!selectedEmployee) return []
+    return threadsAccounts.filter(account =>
+      account.employee_id === selectedEmployee.id
+      || (!account.employee_id && account.mitarbeiter?.toLowerCase() === selectedEmployee.name.toLowerCase())
+    )
+  }, [selectedEmployee, threadsAccounts])
+
   async function handleSave(data: typeof EMPTY_EMP) {
+    const payload = {
+      ...data,
+      telegram_chat_id: data.telegram_chat_id.trim() || null,
+      telegram_threads_thread_id: data.telegram_threads_thread_id.trim() ? Number(data.telegram_threads_thread_id) : null,
+    }
     if (modal?.mode === "edit") {
       await fetch(`/api/employees/${modal.employee.id}`, {
-        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data),
+        method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       })
     } else {
       await fetch("/api/employees", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...data, platform: platformTab }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, platform: platformTab }),
       })
     }
     setModal(null)
@@ -310,16 +418,24 @@ export default function EmployeesPage() {
                     </button>
                   </div>
 
-                  <div className="space-y-1.5">
-                    <StatPill label="IG accounts managed" value={stats.igManaged} color="text-purple-400"/>
-                    <StatPill label="FB accounts managed" value={stats.fbManaged} color="text-blue-400"/>
-                    <StatPill label="Content created for"  value={stats.content}  color="text-gray-300"/>
-                    {(stats.igMissing + stats.fbMissing) > 0 && (
-                      <StatPill label="Tasks missing" value={stats.igMissing + stats.fbMissing} color="text-red-400"/>
-                    )}
-                  </div>
+                  {platformTab === "threads" ? (
+                    <div className="space-y-1.5">
+                      <StatPill label="Threads accounts" value={threadsAccounts.filter(account => account.employee_id === emp.id || (!account.employee_id && account.mitarbeiter?.toLowerCase() === emp.name.toLowerCase())).length} color="text-purple-400"/>
+                      <StatPill label="Telegram-Gruppe" value={emp.telegram_chat_id ? "Verbunden" : "Fehlt"} color={emp.telegram_chat_id ? "text-emerald-400" : "text-amber-400"}/>
+                      <StatPill label="Threads-Topic" value={Number.isInteger(emp.telegram_threads_thread_id) ? "Eingerichtet" : "Fehlt"} color={Number.isInteger(emp.telegram_threads_thread_id) ? "text-emerald-400" : "text-amber-400"}/>
+                    </div>
+                  ) : (
+                    <div className="space-y-1.5">
+                      <StatPill label="IG accounts managed" value={stats.igManaged} color="text-purple-400"/>
+                      <StatPill label="FB accounts managed" value={stats.fbManaged} color="text-blue-400"/>
+                      <StatPill label="Content created for"  value={stats.content}  color="text-gray-300"/>
+                      {(stats.igMissing + stats.fbMissing) > 0 && (
+                        <StatPill label="Tasks missing" value={stats.igMissing + stats.fbMissing} color="text-red-400"/>
+                      )}
+                    </div>
+                  )}
 
-                  {emp.devices > 0 && (
+                  {platformTab !== "threads" && emp.devices > 0 && (
                     <div className="mt-4 pt-3 border-t border-gray-700/50">
                       <div className="flex justify-between text-xs mb-1.5">
                         <span className="text-gray-500">IG Capacity</span>
@@ -346,6 +462,8 @@ export default function EmployeesPage() {
               <div className="border border-gray-800 border-dashed rounded-xl p-12 text-center h-full flex flex-col items-center justify-center">
                 <p className="text-gray-500 text-sm">Click an employee to see their accounts</p>
               </div>
+            ) : platformTab === "threads" && selectedEmployee ? (
+              <ThreadsEmployeeDetails employee={selectedEmployee} accounts={selectedThreadsAccounts}/>
             ) : (
               <div className="space-y-6">
                 {/* Active accounts */}
@@ -452,6 +570,7 @@ export default function EmployeesPage() {
       {modal && (
         <EmpModal
           employee={modal.mode === "edit" ? modal.employee : null}
+          platform={platformTab}
           onClose={() => setModal(null)}
           onSave={handleSave}
           onDelete={modal.mode === "edit" ? handleDelete : undefined}

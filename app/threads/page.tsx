@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { ThreadsAccount, ThreadsDailyBatch, ThreadsAccountStatus, calcPostsPerDay, calcWarmupDay, getPostingTimes } from "@/types/threads"
+import { ThreadsAccount, ThreadsDailyBatch, ThreadsAccountStatus, ThreadsEmployeeOption, calcPostsPerDay, calcWarmupDay, getPostingTimes } from "@/types/threads"
 
 // ── Helpers ───────────────────────────────────────────────────────
 
@@ -54,6 +54,7 @@ const EMPTY_ACCOUNT = {
   creator:            "Cathy",
   branding:           "",
   mitarbeiter:        "",
+  employee_id:        "",
   warmup_started_at:  today(),
   ramp_up_started_at: "",
   status:             "warmup" as ThreadsAccountStatus,
@@ -67,11 +68,13 @@ function AccountModal({
   onClose,
   onSave,
   onDelete,
+  employees,
 }: {
   account: ThreadsAccount | null
   onClose: () => void
   onSave:  (data: typeof EMPTY_ACCOUNT) => Promise<void>
   onDelete?: () => Promise<void>
+  employees: ThreadsEmployeeOption[]
 }) {
   const isNew = !account?.id
   const [form, setForm] = useState<typeof EMPTY_ACCOUNT>({
@@ -79,6 +82,7 @@ function AccountModal({
     creator:            account?.creator            ?? "Cathy",
     branding:           account?.branding           ?? "",
     mitarbeiter:        account?.mitarbeiter        ?? "",
+    employee_id:        account?.employee_id        ?? "",
     warmup_started_at:  account?.warmup_started_at  ?? today(),
     ramp_up_started_at: account?.ramp_up_started_at ?? "",
     status:             account?.status             ?? "warmup",
@@ -124,10 +128,24 @@ function AccountModal({
                 className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Mitarbeiter</label>
-              <input value={form.mitarbeiter} onChange={e => set("mitarbeiter", e.target.value)}
-                placeholder="Name des VA"
-                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Threads-Mitarbeiter</label>
+              <select value={form.employee_id} onChange={e => {
+                const employee = employees.find(option => option.id === e.target.value)
+                setForm(current => ({
+                  ...current,
+                  employee_id: e.target.value,
+                  mitarbeiter: employee?.name ?? "",
+                }))
+              }}
+                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-gray-500">
+                <option value="">{form.mitarbeiter ? `Nicht onboarded: ${form.mitarbeiter}` : "Nicht zugewiesen"}</option>
+                {employees.map(employee => (
+                  <option key={employee.id} value={employee.id}>
+                    {employee.ready ? "✓ " : "⚠ "}{employee.name}
+                  </option>
+                ))}
+              </select>
+              <p className="text-xs text-gray-500 mt-1">⚠ = Telegram-Topic noch nicht vollständig eingerichtet</p>
             </div>
           </div>
 
@@ -291,6 +309,7 @@ export default function ThreadsPage() {
   const [tab,      setTab]      = useState<"accounts" | "heute">("heute")
   const [accounts, setAccounts] = useState<ThreadsAccount[]>([])
   const [batches,  setBatches]  = useState<ThreadsDailyBatch[]>([])
+  const [employees, setEmployees] = useState<ThreadsEmployeeOption[]>([])
   const [loading,  setLoading]  = useState(true)
 
   const [accountModal,  setAccountModal]  = useState<{ mode: "add" } | { mode: "edit"; account: ThreadsAccount } | null>(null)
@@ -302,13 +321,15 @@ export default function ThreadsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const [acRes, batchRes] = await Promise.all([
+    const [acRes, batchRes, employeeRes] = await Promise.all([
       fetch("/api/threads-accounts"),
       fetch(`/api/threads-batches?date=${todayStr}`),
+      fetch("/api/threads-employees"),
     ])
-    const [ac, ba] = await Promise.all([acRes.json(), batchRes.json()])
+    const [ac, ba, em] = await Promise.all([acRes.json(), batchRes.json(), employeeRes.json()])
     setAccounts(Array.isArray(ac) ? ac : [])
     setBatches(Array.isArray(ba) ? ba : [])
+    setEmployees(Array.isArray(em) ? em : [])
     setLoading(false)
   }, [todayStr])
 
@@ -320,6 +341,8 @@ export default function ThreadsPage() {
   const todayBatches    = batches.filter(b => b.date === todayStr)
   const pendingToday    = activeAccounts.filter(a => !todayBatches.find(b => b.account_id === a.id))
   const doneToday       = todayBatches.filter(b => b.status === "deleted").length
+  const employeeById    = new Map(employees.map(employee => [employee.id, employee]))
+  const blockedAccounts = activeAccounts.filter(account => !account.employee_id || !employeeById.get(account.employee_id)?.ready)
 
   // ── Handlers ──────────────────────────────────────────────────
 
@@ -381,7 +404,12 @@ export default function ThreadsPage() {
     const res  = await fetch(`/api/cron/dispatch-threads`)
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
-      setDispatchMsg(`✅ ${data.dispatched ?? 0} Batch${data.dispatched !== 1 ? "es" : ""} per Telegram gesendet`)
+      const skipped = Array.isArray(data.skipped) ? data.skipped : []
+      setDispatchMsg(
+        skipped.length
+          ? `⚠️ ${data.dispatched ?? 0} gesendet · ${skipped.length} übersprungen: ${skipped.map((item: { account: string; reason: string }) => `@${item.account}: ${item.reason}`).join(" | ")}`
+          : `✅ ${data.dispatched ?? 0} Batch${data.dispatched !== 1 ? "es" : ""} per Telegram gesendet`
+      )
     } else {
       setDispatchMsg(`❌ ${data.error ?? "Dispatch fehlgeschlagen"}`)
     }
@@ -423,6 +451,16 @@ export default function ThreadsPage() {
           </div>
         ))}
       </div>
+
+      {/* Tabs */}
+      {blockedAccounts.length > 0 && (
+        <div className="mb-6 rounded-xl border border-amber-800/60 bg-amber-950/30 px-5 py-4">
+          <p className="text-amber-300 text-sm font-semibold">⚠️ {blockedAccounts.length} aktive Accounts sind noch nicht versandbereit</p>
+          <p className="text-amber-200/70 text-xs mt-1">
+            Lege den Threads-Mitarbeiter unter Employees an oder nutze im passenden Telegram-Topic <code>/threadssetup Name</code>.
+          </p>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6">
@@ -468,6 +506,8 @@ export default function ThreadsPage() {
                 const batch       = todayBatches.find(b => b.account_id === account.id) ?? null
                 const postsToday  = calcPostsPerDay(account.ramp_up_started_at)
                 const times       = getPostingTimes(postsToday)
+                const employee    = account.employee_id ? employeeById.get(account.employee_id) : undefined
+                const isReady     = Boolean(employee?.ready)
 
                 return (
                   <div key={account.id} className={`bg-gray-900 border rounded-xl p-5 ${batch ? "border-gray-800" : "border-orange-900/40"}`}>
@@ -481,6 +521,7 @@ export default function ThreadsPage() {
                             <span className="text-gray-500 text-xs">{account.creator}{account.branding ? ` · ${account.branding}` : ""}</span>
                           </div>
                           <p className="text-gray-500 text-xs mt-0.5">{account.mitarbeiter ?? "Kein Mitarbeiter"} · {postsToday} Posts/Tag · {postsToday * 2} Bilder</p>
+                          {!isReady && <p className="text-amber-400 text-xs mt-1">⚠️ Threads-Onboarding oder Telegram-Topic fehlt</p>}
                         </div>
                       </div>
 
@@ -627,6 +668,7 @@ export default function ThreadsPage() {
           onClose={() => setAccountModal(null)}
           onSave={handleSaveAccount}
           onDelete={accountModal.mode === "edit" ? handleDeleteAccount : undefined}
+          employees={employees}
         />
       )}
 

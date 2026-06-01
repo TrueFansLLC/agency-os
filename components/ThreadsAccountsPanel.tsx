@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect, useCallback } from "react"
-import { ThreadsAccount, ThreadsAccountStatus, calcPostsPerDay, calcWarmupDay } from "@/types/threads"
+import { ThreadsAccount, ThreadsAccountStatus, ThreadsEmployeeOption, calcPostsPerDay, calcWarmupDay } from "@/types/threads"
 
 const today = () => new Date().toISOString().slice(0, 10)
 
@@ -32,6 +32,7 @@ const EMPTY_ACCOUNT = {
   creator:            "Cathy",
   branding:           "",
   mitarbeiter:        "",
+  employee_id:        "",
   warmup_started_at:  today(),
   ramp_up_started_at: "",
   status:             "warmup" as ThreadsAccountStatus,
@@ -40,12 +41,13 @@ const EMPTY_ACCOUNT = {
 
 // ── Account Modal ─────────────────────────────────────────────────
 function AccountModal({
-  account, onClose, onSave, onDelete,
+  account, onClose, onSave, onDelete, employees,
 }: {
   account: ThreadsAccount | null
   onClose: () => void
   onSave:  (data: typeof EMPTY_ACCOUNT) => Promise<void>
   onDelete?: () => Promise<void>
+  employees: ThreadsEmployeeOption[]
 }) {
   const isNew = !account?.id
   const [form, setForm] = useState<typeof EMPTY_ACCOUNT>({
@@ -53,6 +55,7 @@ function AccountModal({
     creator:            account?.creator            ?? "Cathy",
     branding:           account?.branding           ?? "",
     mitarbeiter:        account?.mitarbeiter        ?? "",
+    employee_id:        account?.employee_id        ?? "",
     warmup_started_at:  account?.warmup_started_at  ?? today(),
     ramp_up_started_at: account?.ramp_up_started_at ?? "",
     status:             account?.status             ?? "warmup",
@@ -97,10 +100,23 @@ function AccountModal({
                 className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
             </div>
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Mitarbeiter</label>
-              <input value={form.mitarbeiter} onChange={e => set("mitarbeiter", e.target.value)}
-                placeholder="Name des VA"
-                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Threads-Mitarbeiter</label>
+              <select value={form.employee_id} onChange={e => {
+                const employee = employees.find(option => option.id === e.target.value)
+                setForm(current => ({
+                  ...current,
+                  employee_id: e.target.value,
+                  mitarbeiter: employee?.name ?? "",
+                }))
+              }}
+                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-gray-500">
+                <option value="">{form.mitarbeiter ? `Nicht onboarded: ${form.mitarbeiter}` : "Nicht zugewiesen"}</option>
+                {employees.map(employee => (
+                  <option key={employee.id} value={employee.id}>
+                    {employee.ready ? "✓ " : "⚠ "}{employee.name}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
@@ -170,14 +186,22 @@ function AccountModal({
 // ── Panel ─────────────────────────────────────────────────────────
 export default function ThreadsAccountsPanel() {
   const [accounts, setAccounts] = useState<ThreadsAccount[]>([])
+  const [employees, setEmployees] = useState<ThreadsEmployeeOption[]>([])
   const [loading,  setLoading]  = useState(true)
   const [accountModal, setAccountModal] = useState<{ mode: "add" } | { mode: "edit"; account: ThreadsAccount } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch("/api/threads-accounts")
-    const ac  = await res.json().catch(() => [])
+    const [accountRes, employeeRes] = await Promise.all([
+      fetch("/api/threads-accounts"),
+      fetch("/api/threads-employees"),
+    ])
+    const [ac, em] = await Promise.all([
+      accountRes.json().catch(() => []),
+      employeeRes.json().catch(() => []),
+    ])
     setAccounts(Array.isArray(ac) ? ac : [])
+    setEmployees(Array.isArray(em) ? em : [])
     setLoading(false)
   }, [])
 
@@ -294,6 +318,7 @@ export default function ThreadsAccountsPanel() {
           onClose={() => setAccountModal(null)}
           onSave={handleSaveAccount}
           onDelete={accountModal.mode === "edit" ? handleDeleteAccount : undefined}
+          employees={employees}
         />
       )}
     </div>

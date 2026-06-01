@@ -6,6 +6,7 @@ export interface ThreadsAccount {
   username:             string
   creator:              string
   branding:             string | null
+  employee_id:          string | null
   mitarbeiter:          string | null
   warmup_started_at:    string | null
   ramp_up_started_at:   string | null
@@ -26,11 +27,20 @@ export interface ThreadsDailyBatch {
   status:                 ThreadsBatchStatus
   telegram_message_id:    number | null
   chat_id:                string | null
+  thread_id:              number | null
   dispatched_at:          string | null
   posted_confirmed_at:    string | null
   deletion_confirmed_at:  string | null
   created_at:             string
   account?:               ThreadsAccount
+}
+
+export interface ThreadsEmployeeOption {
+  id:                       string
+  name:                     string
+  telegram_connected:       boolean
+  threads_topic_configured: boolean
+  ready:                    boolean
 }
 
 export function calcPostsPerDay(ramp_up_started_at: string | null, today = new Date()): number {

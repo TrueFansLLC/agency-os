@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { requireAdminUser } from "@/lib/supabase/auth-server"
+import { linkThreadsAccountsForEmployee, renameLinkedThreadsAccounts } from "@/lib/threads-employees"
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireAdminUser()
@@ -16,6 +17,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     .select()
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (data.platform === "threads") {
+    await linkThreadsAccountsForEmployee(supabase, data)
+    await renameLinkedThreadsAccounts(supabase, data)
+  }
+
   return NextResponse.json(data)
 }
 

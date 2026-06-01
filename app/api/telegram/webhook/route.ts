@@ -3,6 +3,7 @@ import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage, editMessage, answerCallback, editMessageKeyboard } from "@/lib/telegram"
 import { alertAccountStatus } from "@/lib/rafael"
 import { isTelegramWebhookAuthorized } from "@/lib/supabase/auth-server"
+import { linkThreadsAccountsForEmployee } from "@/lib/threads-employees"
 
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 
@@ -27,6 +28,8 @@ export async function POST(request: NextRequest) {
       await handleProblemReport(body.callback_query)
     } else if (data.startsWith("sc:")) {
       await handleStatusCycle(body.callback_query)
+    } else if (data.startsWith("th:")) {
+      await handleThreadsBatchCallback(body.callback_query)
     } else if (data !== "_") {
       await handleCallback(body.callback_query)
     } else {
@@ -52,6 +55,65 @@ export async function POST(request: NextRequest) {
     await sendMessage(chatId,
       `🆔 <b>Chat ID:</b> <code>${chatId}</code>\n📌 <b>Thread ID:</b> <code>${threadId ?? "no topic"}</code>`,
       threadId ?? undefined
+    )
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── /threadssetup Name ─────────────────────────────────────────
+  if (text.startsWith("/threadssetup")) {
+    const threadId = message.message_thread_id ?? null
+    const requestedName = text.match(/^\/threadssetup(?:@\w+)?\s+(.+)$/i)?.[1]?.trim()
+    const senderId = String(message.from?.id ?? "")
+
+    if (!OWNER_CHAT_ID || senderId !== OWNER_CHAT_ID) {
+      await sendMessage(chatId, "⛔ Only the owner can configure Threads onboarding.", threadId ?? undefined)
+      return NextResponse.json({ ok: true })
+    }
+    if (!threadId) {
+      await sendMessage(chatId, "⚠️ Run <code>/threadssetup Name</code> inside the employee's Threads topic.")
+      return NextResponse.json({ ok: true })
+    }
+    if (!requestedName) {
+      await sendMessage(chatId, "⚠️ Add the employee name, for example: <code>/threadssetup Lizel</code>", threadId)
+      return NextResponse.json({ ok: true })
+    }
+
+    const { data: existing } = await supabase
+      .from("employees")
+      .select("id, name, platform")
+      .ilike("name", requestedName)
+      .limit(1)
+      .maybeSingle()
+
+    if (existing && existing.platform !== "threads") {
+      await sendMessage(
+        chatId,
+        `⚠️ <b>${existing.name}</b> already exists for Instagram/Facebook. Use a distinct Threads employee name in the command.`,
+        threadId
+      )
+      return NextResponse.json({ ok: true })
+    }
+
+    const employeePayload = {
+      name: requestedName,
+      platform: "threads",
+      telegram_chat_id: chatId,
+      telegram_threads_thread_id: threadId,
+    }
+    const { data: employee, error } = existing
+      ? await supabase.from("employees").update(employeePayload).eq("id", existing.id).select("id, name").single()
+      : await supabase.from("employees").insert(employeePayload).select("id, name").single()
+
+    if (error || !employee) {
+      await sendMessage(chatId, `❌ Threads onboarding failed: ${error?.message ?? "unknown error"}`, threadId)
+      return NextResponse.json({ ok: true })
+    }
+
+    const linkedAccounts = await linkThreadsAccountsForEmployee(supabase, employee)
+    await sendMessage(
+      chatId,
+      `✅ <b>${employee.name}</b> is ready for Threads.\n\n📌 This topic receives the daily Threads batches.\n🔗 ${linkedAccounts} existing account${linkedAccounts === 1 ? "" : "s"} linked automatically.`,
+      threadId
     )
     return NextResponse.json({ ok: true })
   }
@@ -157,53 +219,131 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true })
     }
 
-    // 2. Threads batch — "all posted" confirmation (first ✅)
-    const { data: sentBatch } = await supabase2
-      .from("threads_daily_batches")
-      .select("*, account:threads_accounts(*)")
-      .eq("telegram_message_id", replyToId)
-      .eq("chat_id", chatId)
-      .eq("status", "sent")
-      .maybeSingle()
-
-    if (sentBatch) {
-      await supabase2
-        .from("threads_daily_batches")
-        .update({ status: "posted", posted_confirmed_at: new Date().toISOString() })
-        .eq("id", sentBatch.id)
-
-      await sendMessage(chatId,
-        `✅ <b>${sentBatch.posts_count} Threads posts</b> for @${sentBatch.account?.username} confirmed!\n\n🗑️ Now delete all <b>${sentBatch.images_count} images</b> from the Drive folder.\n\nReply with <b>✅✅</b> once all images are deleted.`
-      )
-      return NextResponse.json({ ok: true })
-    }
-
-    // 3. Threads batch — "images deleted" confirmation (✅✅)
     const isDeletion = text.includes("✅✅") || text.toLowerCase().includes("gelöscht") || text.toLowerCase().includes("deleted")
     if (isDeletion) {
-      const { data: postedBatch } = await supabase2
+      let postedQuery = supabase2
+        .from("threads_daily_batches")
+        .select("*, account:threads_accounts(*)")
+        .eq("chat_id", chatId)
+        .eq("status", "posted")
+        .order("posted_confirmed_at", { ascending: false })
+        .limit(1)
+      if (message.message_thread_id) postedQuery = postedQuery.eq("thread_id", message.message_thread_id)
+      const { data: postedBatch } = await postedQuery.maybeSingle()
+
+      if (postedBatch) {
+        await markThreadsBatchDeleted(postedBatch.id)
+        await sendMessage(chatId, threadsDeletedText(postedBatch), postedBatch.thread_id ?? undefined)
+        return NextResponse.json({ ok: true })
+      }
+    }
+
+    // 2. Threads batch — "all posted" confirmation (first ✅)
+    const isPosted = text.includes("✅") || /posted|gepostet|done/i.test(text)
+    if (isPosted) {
+      const { data: sentBatch } = await supabase2
         .from("threads_daily_batches")
         .select("*, account:threads_accounts(*)")
         .eq("telegram_message_id", replyToId)
         .eq("chat_id", chatId)
-        .eq("status", "posted")
+        .eq("status", "sent")
         .maybeSingle()
 
-      if (postedBatch) {
-        await supabase2
-          .from("threads_daily_batches")
-          .update({ status: "deleted", deletion_confirmed_at: new Date().toISOString() })
-          .eq("id", postedBatch.id)
-
-        await sendMessage(chatId,
-          `🗑️ Perfect! All images for @${postedBatch.account?.username} deleted.\n\nAll done for today ✅`
-        )
+      if (sentBatch) {
+        await markThreadsBatchPosted(sentBatch.id)
+        await sendThreadsDeletionPrompt(sentBatch)
         return NextResponse.json({ ok: true })
       }
     }
   }
 
   return NextResponse.json({ ok: true })
+}
+
+async function handleThreadsBatchCallback(cb: {
+  id: string
+  data: string
+  from: { id: number; first_name?: string }
+  message: { message_id: number; chat: { id: number }; text?: string; message_thread_id?: number }
+}) {
+  const [, action, batchId] = cb.data.split(":")
+  const chatId = String(cb.message.chat.id)
+  const supabase = createServerClient()
+  const { data: batch } = await supabase
+    .from("threads_daily_batches")
+    .select("*, account:threads_accounts(*)")
+    .eq("id", batchId)
+    .eq("chat_id", chatId)
+    .maybeSingle()
+
+  if (!batch) {
+    await answerCallback(cb.id, "Batch not found.")
+    return
+  }
+
+  if (action === "posted") {
+    if (batch.status !== "sent") {
+      await answerCallback(cb.id, "Already confirmed.")
+      return
+    }
+    await markThreadsBatchPosted(batch.id)
+    await editMessage(
+      chatId,
+      cb.message.message_id,
+      `${cb.message.text ?? ""}\n\n——————————————\n✅ <b>All posts published</b> by ${cb.from.first_name ?? "employee"}`,
+      []
+    )
+    await sendThreadsDeletionPrompt(batch)
+    await answerCallback(cb.id, "✅ Posts confirmed!")
+    return
+  }
+
+  if (action === "deleted") {
+    if (batch.status !== "posted") {
+      await answerCallback(cb.id, "Already confirmed.")
+      return
+    }
+    await markThreadsBatchDeleted(batch.id)
+    await editMessage(chatId, cb.message.message_id, threadsDeletedText(batch), [])
+    await answerCallback(cb.id, "🗑 Images deleted!")
+    return
+  }
+
+  await answerCallback(cb.id)
+}
+
+async function markThreadsBatchPosted(batchId: string) {
+  await createServerClient()
+    .from("threads_daily_batches")
+    .update({ status: "posted", posted_confirmed_at: new Date().toISOString() })
+    .eq("id", batchId)
+}
+
+async function markThreadsBatchDeleted(batchId: string) {
+  await createServerClient()
+    .from("threads_daily_batches")
+    .update({ status: "deleted", deletion_confirmed_at: new Date().toISOString() })
+    .eq("id", batchId)
+}
+
+async function sendThreadsDeletionPrompt(batch: {
+  id: string
+  chat_id: string
+  images_count: number
+  thread_id?: number | null
+  account?: { username?: string } | null
+}) {
+  if (!batch.account?.username) return
+  await sendMessage(
+    String(batch.chat_id),
+    `✅ <b>Threads posts confirmed</b> for @${batch.account.username}.\n\n🗑️ Now delete all <b>${batch.images_count} images</b> from the Drive folder.`,
+    batch.thread_id ?? undefined,
+    [[{ text: "🗑 Bilder gelöscht", callback_data: `th:deleted:${batch.id}` }]]
+  )
+}
+
+function threadsDeletedText(batch: { account?: { username?: string } | null }) {
+  return `🗑️ Perfect! All images for @${batch.account?.username ?? "account"} deleted.\n\nAll done for today ✅`
 }
 
 async function handleAllActive(cb: {
