@@ -85,6 +85,7 @@ export default function AIToolsPage() {
   const [processingImage, setProcessingImage] = useState(false)
   const [submissionProgress, setSubmissionProgress] = useState("")
   const [savingAssetIds, setSavingAssetIds] = useState<string[]>([])
+  const [selectedGenerationIds, setSelectedGenerationIds] = useState<string[]>([])
 
   const loadRecent = useCallback(async () => {
     setLoadingRecent(true)
@@ -195,28 +196,42 @@ export default function AIToolsPage() {
   }
 
   async function handleSaveAsset(generationId: string) {
-    setSavingAssetIds(current => [...current, generationId])
+    await handleSaveAssets([generationId])
+  }
+
+  async function handleSaveAssets(generationIds: string[]) {
+    if (!generationIds.length) return
+    setSavingAssetIds(current => [...new Set([...current, ...generationIds])])
     setError("")
-    const response = await fetch("/api/content-assets", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ generation_id: generationId }),
-    })
-    const data = await response.json().catch(() => ({}))
-    setSavingAssetIds(current => current.filter(id => id !== generationId))
-    if (!response.ok) {
-      setError(data.error ?? "The image could not be saved to the content library.")
-      return
+    const saved = new Map<string, { id: string; status: string }>()
+    for (const generationId of generationIds) {
+      const response = await fetch("/api/content-assets", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ generation_id: generationId }),
+      })
+      const data = await response.json().catch(() => ({}))
+      if (!response.ok) {
+        setError(data.error ?? "One or more images could not be saved to the content library.")
+        break
+      }
+      saved.set(generationId, data)
     }
 
-    const markSaved = (generation: Generation) => generation.id === generationId
-      ? { ...generation, saved_asset_id: data.id, asset_status: data.status }
-      : generation
+    setSavingAssetIds(current => current.filter(id => !generationIds.includes(id)))
+    setSelectedGenerationIds(current => current.filter(id => !saved.has(id)))
+    const markSaved = (generation: Generation) => {
+      const asset = saved.get(generation.id)
+      return asset ? { ...generation, saved_asset_id: asset.id, asset_status: asset.status } : generation
+    }
     setActive(current => current.map(markSaved))
     setRecent(current => current.map(markSaved))
   }
 
   const visible = active.length ? active : recent
+  const selectableGenerationIds = visible
+    .filter(generation => generation.image_url && !generation.saved_asset_id)
+    .map(generation => generation.id)
   const canGenerate = mode === "prompt" ? Boolean(prompt.trim()) : Boolean(referenceImages.length)
   const totalImages = mode === "reference" ? referenceImages.length * variants : variants
 
@@ -338,6 +353,30 @@ export default function AIToolsPage() {
             </button>
           </div>
 
+          {selectableGenerationIds.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 mb-4 rounded-lg border border-gray-800 bg-gray-900 px-3 py-2.5">
+              <button type="button" onClick={() => setSelectedGenerationIds(selectableGenerationIds)}
+                className="text-xs text-gray-400 hover:text-white">
+                Select all unsaved
+              </button>
+              {selectedGenerationIds.length > 0 && (
+                <>
+                  <span className="text-xs text-gray-600">·</span>
+                  <span className="text-xs text-gray-300">{selectedGenerationIds.length} selected</span>
+                  <button type="button" onClick={() => void handleSaveAssets(selectedGenerationIds)}
+                    disabled={savingAssetIds.length > 0}
+                    className="rounded-md bg-violet-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-violet-500 disabled:opacity-50">
+                    {savingAssetIds.length > 0 ? "Saving..." : "Save selected to library"}
+                  </button>
+                  <button type="button" onClick={() => setSelectedGenerationIds([])}
+                    className="text-xs text-gray-500 hover:text-white">
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
           {loadingRecent && !visible.length ? (
             <div className="border border-gray-800 bg-gray-900 rounded-xl p-8 text-sm text-gray-500">Loading images...</div>
           ) : !visible.length ? (
@@ -348,12 +387,19 @@ export default function AIToolsPage() {
           ) : (
             <div className="grid sm:grid-cols-2 xl:grid-cols-3 gap-4">
               {visible.map(generation => (
-                <article key={generation.id} className="overflow-hidden bg-gray-900 border border-gray-800 rounded-xl">
+                <article key={generation.id} className={`overflow-hidden bg-gray-900 border rounded-xl ${selectedGenerationIds.includes(generation.id) ? "border-violet-500" : "border-gray-800"}`}>
                   <div className="aspect-[4/5] bg-gray-950 flex items-center justify-center relative">
                     {generation.image_url ? (
                       <Image src={generation.image_url} alt={`${generation.creator} generation`} fill unoptimized className="object-cover"/>
                     ) : (
                       <p className="text-sm text-gray-600 px-5 text-center">{generation.status === "failed" ? "Generation failed" : "Generating image..."}</p>
+                    )}
+                    {generation.image_url && !generation.saved_asset_id && (
+                      <label className="absolute left-2 top-2 flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-gray-600 bg-gray-950/90">
+                        <input type="checkbox" checked={selectedGenerationIds.includes(generation.id)}
+                          onChange={() => setSelectedGenerationIds(current => current.includes(generation.id) ? current.filter(id => id !== generation.id) : [...current, generation.id])}
+                          className="accent-violet-500"/>
+                      </label>
                     )}
                   </div>
                   <div className="p-3.5">
