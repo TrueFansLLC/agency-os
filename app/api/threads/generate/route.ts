@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { creatorRefUrls } from "@/lib/creator-refs"
-import { isTokenAuthorized } from "@/lib/supabase/auth-server"
+import { isAdminUser, isTokenAuthorized } from "@/lib/supabase/auth-server"
 
 export const maxDuration = 60
 
@@ -9,18 +9,25 @@ const TOKEN  = process.env.THREADS_GENERATE_TOKEN ?? ""
 const FAL_KEY = process.env.FAL_KEY ?? ""
 const SEEDREAM_EDIT = "fal-ai/bytedance/seedream/v4.5/edit"
 
+async function canGenerate(request: Request) {
+  return isTokenAuthorized(request, TOKEN) || await isAdminUser()
+}
+
 // ── Generate variants for a creator (one per prompt) ──────────────
 export async function POST(request: Request) {
-  if (!isTokenAuthorized(request, TOKEN)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!await canGenerate(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!FAL_KEY) return NextResponse.json({ error: "FAL_KEY missing" }, { status: 500 })
 
   const body        = await request.json().catch(() => ({} as Record<string, unknown>))
-  const creator     = body.creator as string
-  const prompts     = (body.prompts as string[]) ?? []
-  const sourceLabel = (body.source_label as string) ?? null
+  const creator     = typeof body.creator === "string" ? body.creator.trim() : ""
+  const prompts     = Array.isArray(body.prompts)
+    ? body.prompts.filter((prompt: unknown): prompt is string => typeof prompt === "string").map((prompt: string) => prompt.trim()).filter(Boolean)
+    : []
+  const sourceLabel = typeof body.source_label === "string" ? body.source_label.trim() || null : null
   if (!creator || !prompts.length) return NextResponse.json({ error: "creator + prompts[] required" }, { status: 400 })
+  if (prompts.length > 10) return NextResponse.json({ error: "maximum 10 variants per batch" }, { status: 400 })
 
-  const refs = creatorRefUrls(creator)
+  const refs = creatorRefUrls(creator).slice(-10)
   if (!refs.length) return NextResponse.json({ error: `no reference images for creator '${creator}'` }, { status: 400 })
 
   const supabase = createServerClient()
@@ -31,7 +38,7 @@ export async function POST(request: Request) {
   for (const prompt of prompts) {
     const r = await fetch(`https://queue.fal.run/${SEEDREAM_EDIT}`, {
       method: "POST", headers,
-      body: JSON.stringify({ prompt, image_urls: refs, num_images: 1 }),
+      body: JSON.stringify({ prompt, image_urls: refs, image_size: "portrait_4_3", num_images: 1 }),
     })
     const d = await r.json().catch(() => ({}))
     rows.push({
@@ -53,12 +60,19 @@ export async function POST(request: Request) {
 // ── Poll a batch: update finished generations, return current state ─
 export async function GET(request: Request) {
   const url = new URL(request.url)
-  if (!isTokenAuthorized(request, TOKEN)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+  if (!await canGenerate(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   const batchId = url.searchParams.get("batch_id")
-  if (!batchId) return NextResponse.json({ error: "batch_id required" }, { status: 400 })
 
   const supabase = createServerClient()
   const headers  = { Authorization: `Key ${FAL_KEY}` }
+  if (!batchId) {
+    const { data, error } = await supabase.from("threads_generations")
+      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at")
+      .order("created_at", { ascending: false })
+      .limit(40)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ generations: data ?? [] })
+  }
 
   const { data: gens } = await supabase.from("threads_generations").select("*").eq("batch_id", batchId)
   for (const g of gens ?? []) {
@@ -70,10 +84,14 @@ export async function GET(request: Request) {
       await supabase.from("threads_generations")
         .update({ image_url: imageUrl, status: imageUrl ? "pending" : "failed", updated_at: new Date().toISOString() })
         .eq("id", g.id)
+    } else if (st.status === "FAILED") {
+      await supabase.from("threads_generations")
+        .update({ status: "failed", updated_at: new Date().toISOString() })
+        .eq("id", g.id)
     }
   }
 
   const { data: updated } = await supabase.from("threads_generations")
-    .select("id,creator,prompt,image_url,status,source_label").eq("batch_id", batchId).order("created_at")
+    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at").eq("batch_id", batchId).order("created_at")
   return NextResponse.json({ batch_id: batchId, generations: updated ?? [] })
 }
