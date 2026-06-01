@@ -11,6 +11,7 @@ type Employee = {
   platform: string | null
   telegram_chat_id: string | null
   telegram_threads_thread_id: number | null
+  telegram_threads_status_thread_id: number | null
   created_at: string
 }
 
@@ -41,7 +42,7 @@ const ARCHIVE_REASONS = [
   "Anderer Grund",
 ]
 
-const EMPTY_EMP = { name: "", devices: 0, notes: "", telegram_chat_id: "", telegram_threads_thread_id: "" }
+const EMPTY_EMP = { name: "", devices: 0, notes: "", telegram_chat_id: "", telegram_threads_thread_id: "", telegram_threads_status_thread_id: "" }
 
 function EmpModal({ employee, platform, onClose, onSave, onDelete }: {
   employee: Employee | null
@@ -57,6 +58,7 @@ function EmpModal({ employee, platform, onClose, onSave, onDelete }: {
     notes: employee?.notes ?? "",
     telegram_chat_id: employee?.telegram_chat_id ?? "",
     telegram_threads_thread_id: employee?.telegram_threads_thread_id ? String(employee.telegram_threads_thread_id) : "",
+    telegram_threads_status_thread_id: employee?.telegram_threads_status_thread_id ? String(employee.telegram_threads_status_thread_id) : "",
   })
   const [saving, setSaving] = useState(false)
 
@@ -80,7 +82,8 @@ function EmpModal({ employee, platform, onClose, onSave, onDelete }: {
             <div className="rounded-lg border border-blue-900/60 bg-blue-950/30 px-4 py-3">
               <p className="text-blue-200 text-sm font-medium">Telegram automatisch verbinden</p>
               <p className="text-blue-200/70 text-xs mt-1">
-                Im gewünschten Threads-Topic <code>/threadssetup {form.name || "Name"}</code> senden. Die Felder unten werden dann automatisch gesetzt.
+                In <b>Threads Posting</b>: <code>/threadssetup {form.name || "Name"}</code><br/>
+                In <b>Account Status</b>: <code>/threadsstatussetup {form.name || "Name"}</code>
               </p>
             </div>
           ) : (
@@ -94,7 +97,7 @@ function EmpModal({ employee, platform, onClose, onSave, onDelete }: {
             </div>
           )}
           {platform === "threads" && (
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-3 gap-3">
               <div>
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Telegram Chat ID</label>
                 <input value={form.telegram_chat_id} onChange={e => setForm(f => ({ ...f, telegram_chat_id: e.target.value }))}
@@ -105,6 +108,12 @@ function EmpModal({ employee, platform, onClose, onSave, onDelete }: {
                 <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Threads Topic ID</label>
                 <input inputMode="numeric" value={form.telegram_threads_thread_id} onChange={e => setForm(f => ({ ...f, telegram_threads_thread_id: e.target.value }))}
                   placeholder="123"
+                  className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Status Topic ID</label>
+                <input inputMode="numeric" value={form.telegram_threads_status_thread_id} onChange={e => setForm(f => ({ ...f, telegram_threads_status_thread_id: e.target.value }))}
+                  placeholder="124"
                   className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-gray-500"/>
               </div>
             </div>
@@ -138,6 +147,7 @@ function EmpModal({ employee, platform, onClose, onSave, onDelete }: {
 function ThreadsEmployeeDetails({ employee, accounts }: { employee: Employee; accounts: ThreadsAccount[] }) {
   const telegramReady = Boolean(employee.telegram_chat_id)
   const topicReady = Number.isInteger(employee.telegram_threads_thread_id)
+  const statusTopicReady = Number.isInteger(employee.telegram_threads_status_thread_id)
   const ready = telegramReady && topicReady
 
   return (
@@ -153,10 +163,14 @@ function ThreadsEmployeeDetails({ employee, accounts }: { employee: Employee; ac
         )}
       </div>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-3 gap-3">
         <div className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3">
           <p className="text-xs text-gray-500">Telegram-Gruppe</p>
           <p className={`text-sm font-medium mt-1 ${telegramReady ? "text-emerald-400" : "text-amber-400"}`}>{telegramReady ? "Verbunden" : "Fehlt"}</p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3">
+          <p className="text-xs text-gray-500">Account-Status-Topic</p>
+          <p className={`text-sm font-medium mt-1 ${statusTopicReady ? "text-emerald-400" : "text-amber-400"}`}>{statusTopicReady ? "Eingerichtet" : "Optional: fehlt"}</p>
         </div>
         <div className="rounded-xl border border-gray-800 bg-gray-900 px-4 py-3">
           <p className="text-xs text-gray-500">Threads-Topic</p>
@@ -179,7 +193,13 @@ function ThreadsEmployeeDetails({ employee, accounts }: { employee: Employee; ac
                   <p className="text-white text-sm font-medium">@{account.username}</p>
                   <p className="text-gray-500 text-xs mt-0.5">{account.creator}{account.branding ? ` · ${account.branding}` : ""}</p>
                 </div>
-                <span className={`text-xs rounded-full border px-2.5 py-1 ${account.status === "active" ? "border-emerald-800 text-emerald-300" : "border-gray-700 text-gray-400"}`}>
+                <span className={`text-xs rounded-full border px-2.5 py-1 ${
+                  account.status === "active"
+                    ? "border-emerald-800 text-emerald-300"
+                    : account.status === "restricted"
+                      ? "border-orange-800 text-orange-300"
+                      : "border-gray-700 text-gray-400"
+                }`}>
                   {account.status}
                 </span>
               </div>
@@ -307,6 +327,7 @@ export default function EmployeesPage() {
       ...data,
       telegram_chat_id: data.telegram_chat_id.trim() || null,
       telegram_threads_thread_id: data.telegram_threads_thread_id.trim() ? Number(data.telegram_threads_thread_id) : null,
+      telegram_threads_status_thread_id: data.telegram_threads_status_thread_id.trim() ? Number(data.telegram_threads_status_thread_id) : null,
     }
     if (modal?.mode === "edit") {
       await fetch(`/api/employees/${modal.employee.id}`, {
@@ -423,6 +444,7 @@ export default function EmployeesPage() {
                       <StatPill label="Threads accounts" value={threadsAccounts.filter(account => account.employee_id === emp.id || (!account.employee_id && account.mitarbeiter?.toLowerCase() === emp.name.toLowerCase())).length} color="text-purple-400"/>
                       <StatPill label="Telegram-Gruppe" value={emp.telegram_chat_id ? "Verbunden" : "Fehlt"} color={emp.telegram_chat_id ? "text-emerald-400" : "text-amber-400"}/>
                       <StatPill label="Threads-Topic" value={Number.isInteger(emp.telegram_threads_thread_id) ? "Eingerichtet" : "Fehlt"} color={Number.isInteger(emp.telegram_threads_thread_id) ? "text-emerald-400" : "text-amber-400"}/>
+                      <StatPill label="Status-Topic" value={Number.isInteger(emp.telegram_threads_status_thread_id) ? "Eingerichtet" : "Optional: fehlt"} color={Number.isInteger(emp.telegram_threads_status_thread_id) ? "text-emerald-400" : "text-amber-400"}/>
                     </div>
                   ) : (
                     <div className="space-y-1.5">

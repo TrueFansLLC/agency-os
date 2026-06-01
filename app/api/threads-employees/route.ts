@@ -10,7 +10,7 @@ export async function GET() {
   const supabase = createServerClient()
   const { data, error } = await supabase
     .from("employees")
-    .select("id, name, telegram_chat_id, telegram_threads_thread_id")
+    .select("id, name, telegram_chat_id, telegram_threads_thread_id, telegram_threads_status_thread_id")
     .eq("platform", "threads")
     .order("name")
 
@@ -28,6 +28,7 @@ export async function GET() {
         name: employee.name,
         telegram_connected: telegramConnected,
         threads_topic_configured: topicConfigured,
+        status_topic_configured: Number.isInteger(employee.telegram_threads_status_thread_id),
         ready: telegramConnected && topicConfigured,
       }
     })

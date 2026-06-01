@@ -4,6 +4,12 @@ import { sendMessage, editMessage, answerCallback, editMessageKeyboard } from "@
 import { alertAccountStatus } from "@/lib/rafael"
 import { isTelegramWebhookAuthorized } from "@/lib/supabase/auth-server"
 import { linkThreadsAccountsForEmployee } from "@/lib/threads-employees"
+import {
+  buildThreadsDailyStatusMessage,
+  buildThreadsPostingMessage,
+  THREADS_ACCOUNT_STATUS_BUTTONS,
+  THREADS_POSTING_BUTTONS,
+} from "@/lib/threads-telegram"
 
 const OWNER_CHAT_ID = process.env.TELEGRAM_OWNER_CHAT_ID ?? ""
 
@@ -28,6 +34,8 @@ export async function POST(request: NextRequest) {
       await handleProblemReport(body.callback_query)
     } else if (data.startsWith("sc:")) {
       await handleStatusCycle(body.callback_query)
+    } else if (data.startsWith("ts:")) {
+      await handleThreadsStatusCallback(body.callback_query)
     } else if (data.startsWith("th:")) {
       await handleThreadsBatchCallback(body.callback_query)
     } else if (data !== "_") {
@@ -56,6 +64,17 @@ export async function POST(request: NextRequest) {
       `🆔 <b>Chat ID:</b> <code>${chatId}</code>\n📌 <b>Thread ID:</b> <code>${threadId ?? "no topic"}</code>`,
       threadId ?? undefined
     )
+    return NextResponse.json({ ok: true })
+  }
+
+  // ── /threadsstatussetup Name ───────────────────────────────────
+  if (text.startsWith("/threadsstatussetup")) {
+    await configureThreadsStatusTopic({
+      chatId,
+      threadId: message.message_thread_id ?? null,
+      requestedName: text.match(/^\/threadsstatussetup(?:@\w+)?\s+(.+)$/i)?.[1]?.trim(),
+      senderId: String(message.from?.id ?? ""),
+    })
     return NextResponse.json({ ok: true })
   }
 
@@ -112,7 +131,7 @@ export async function POST(request: NextRequest) {
     const linkedAccounts = await linkThreadsAccountsForEmployee(supabase, employee)
     await sendMessage(
       chatId,
-      `✅ <b>${employee.name}</b> is ready for Threads.\n\n📌 This topic receives the daily Threads batches.\n🔗 ${linkedAccounts} existing account${linkedAccounts === 1 ? "" : "s"} linked automatically.`,
+      `✅ <b>${employee.name}</b> is ready for Threads.\n\n📌 This topic receives the daily Threads batches.\n🔗 ${linkedAccounts} existing account${linkedAccounts === 1 ? "" : "s"} linked automatically.\n\n<b>Recommended group topics:</b>\n• Threads Posting\n• Account Status\n• Questions & Problems\n• Weekly Reports`,
       threadId
     )
     return NextResponse.json({ ok: true })
@@ -247,6 +266,7 @@ export async function POST(request: NextRequest) {
         .eq("telegram_message_id", replyToId)
         .eq("chat_id", chatId)
         .eq("status", "sent")
+        .not("status_checked_at", "is", null)
         .maybeSingle()
 
       if (sentBatch) {
@@ -258,6 +278,136 @@ export async function POST(request: NextRequest) {
   }
 
   return NextResponse.json({ ok: true })
+}
+
+async function configureThreadsStatusTopic({
+  chatId,
+  threadId,
+  requestedName,
+  senderId,
+}: {
+  chatId: string
+  threadId: number | null
+  requestedName?: string
+  senderId: string
+}) {
+  if (!OWNER_CHAT_ID || senderId !== OWNER_CHAT_ID) {
+    await sendMessage(chatId, "⛔ Only the owner can configure Threads onboarding.", threadId ?? undefined)
+    return
+  }
+  if (!threadId) {
+    await sendMessage(chatId, "⚠️ Run <code>/threadsstatussetup Name</code> inside the employee's Account Status topic.")
+    return
+  }
+  if (!requestedName) {
+    await sendMessage(chatId, "⚠️ Add the employee name, for example: <code>/threadsstatussetup Lizel</code>", threadId)
+    return
+  }
+
+  const supabase = createServerClient()
+  const { data: employee } = await supabase
+    .from("employees")
+    .select("id, name")
+    .eq("platform", "threads")
+    .ilike("name", requestedName)
+    .limit(1)
+    .maybeSingle()
+
+  if (!employee) {
+    await sendMessage(chatId, `⚠️ Threads employee <b>${requestedName}</b> not found. Run <code>/threadssetup ${requestedName}</code> first.`, threadId)
+    return
+  }
+
+  const { error } = await supabase
+    .from("employees")
+    .update({
+      telegram_chat_id: chatId,
+      telegram_threads_status_thread_id: threadId,
+    })
+    .eq("id", employee.id)
+
+  if (error) {
+    await sendMessage(chatId, `❌ Threads status-topic setup failed: ${error.message}`, threadId)
+    return
+  }
+
+  await sendMessage(
+    chatId,
+    `✅ <b>${employee.name}</b> is connected to the Threads Account Status topic.\n\n📊 Peter will send the daily account-status check here before posting starts.`,
+    threadId
+  )
+}
+
+async function handleThreadsStatusCallback(cb: {
+  id: string
+  data: string
+  from: { id: number; first_name?: string }
+  message: { message_id: number; chat: { id: number }; message_thread_id?: number }
+}) {
+  const [, status, accountId] = cb.data.split(":")
+  if (!["active", "restricted", "banned"].includes(status)) {
+    await answerCallback(cb.id)
+    return
+  }
+
+  const chatId = String(cb.message.chat.id)
+  const supabase = createServerClient()
+  const { data: account } = await supabase
+    .from("threads_accounts")
+    .select("id, username, creator, branding, status, mitarbeiter, employee_id")
+    .eq("id", accountId)
+    .maybeSingle()
+
+  if (!account?.employee_id) {
+    await answerCallback(cb.id, "Account not found.")
+    return
+  }
+
+  const { data: employee } = await supabase
+    .from("employees")
+    .select("telegram_chat_id, telegram_threads_status_thread_id")
+    .eq("id", account.employee_id)
+    .maybeSingle()
+
+  if (
+    employee?.telegram_chat_id !== chatId
+    || employee.telegram_threads_status_thread_id !== cb.message.message_thread_id
+  ) {
+    await answerCallback(cb.id, "This status check is not linked to the account.")
+    return
+  }
+
+  const now = new Date().toISOString()
+  const { data: updated } = await supabase
+    .from("threads_accounts")
+    .update({ status, updated_at: now })
+    .eq("id", account.id)
+    .select("id, username, creator, branding, status")
+    .single()
+
+  if (!updated) {
+    await answerCallback(cb.id, "Status update failed.")
+    return
+  }
+
+  const who = cb.from.first_name ?? "employee"
+  await editMessage(
+    chatId,
+    cb.message.message_id,
+    buildThreadsDailyStatusMessage(updated, who),
+    THREADS_ACCOUNT_STATUS_BUTTONS(updated.id, updated.status)
+  )
+  await answerCallback(cb.id, `✅ @${updated.username}: ${status} saved`)
+
+  if (status === "restricted" || status === "banned") {
+    await alertAccountStatus({
+      account: `@${updated.username}`,
+      platform: "Threads",
+      newStatus: status,
+      employee: account.mitarbeiter ?? who,
+      creator: updated.creator,
+    })
+  }
 }
 
 async function handleThreadsBatchCallback(cb: {
@@ -281,9 +431,78 @@ async function handleThreadsBatchCallback(cb: {
     return
   }
 
+  if (action === "active") {
+    if (batch.status !== "sent") {
+      await answerCallback(cb.id, "This batch is no longer waiting for a status check.")
+      return
+    }
+    if (batch.account?.status !== "active") {
+      await answerCallback(cb.id, `Account is ${batch.account?.status ?? "not active"}. Posting remains paused.`)
+      return
+    }
+
+    await supabase
+      .from("threads_daily_batches")
+      .update({ status_checked_at: new Date().toISOString() })
+      .eq("id", batch.id)
+
+    await editMessage(
+      chatId,
+      cb.message.message_id,
+      buildThreadsPostingMessage(batch),
+      THREADS_POSTING_BUTTONS(batch.id)
+    )
+    await answerCallback(cb.id, "✅ Active confirmed. Posting unlocked!")
+    return
+  }
+
+  if (action === "restricted" || action === "banned") {
+    if (batch.status !== "sent") {
+      await answerCallback(cb.id, "This batch has already been handled.")
+      return
+    }
+
+    const now = new Date().toISOString()
+    await supabase
+      .from("threads_accounts")
+      .update({ status: action, updated_at: now })
+      .eq("id", batch.account_id)
+    await supabase
+      .from("threads_daily_batches")
+      .update({
+        status: "blocked",
+        status_checked_at: now,
+        blocked_at: now,
+        blocked_reason: action,
+      })
+      .eq("id", batch.id)
+
+    const icon = action === "restricted" ? "🟠" : "🔴"
+    const label = action === "restricted" ? "Restricted" : "Banned"
+    await editMessage(
+      chatId,
+      cb.message.message_id,
+      `${cb.message.text ?? ""}\n\n——————————————\n${icon} <b>Account ${label.toLowerCase()}</b>\nPosting has been paused. Do not publish anything for this account.`,
+      []
+    )
+    await answerCallback(cb.id, `${icon} ${label}. Posting paused.`)
+    await alertAccountStatus({
+      account: `@${batch.account?.username ?? "account"}`,
+      platform: "Threads",
+      newStatus: action,
+      employee: batch.account?.mitarbeiter ?? cb.from.first_name ?? "—",
+      creator: batch.account?.creator ?? "—",
+    })
+    return
+  }
+
   if (action === "posted") {
     if (batch.status !== "sent") {
       await answerCallback(cb.id, "Already confirmed.")
+      return
+    }
+    if (!batch.status_checked_at) {
+      await answerCallback(cb.id, "Confirm the account status first.")
       return
     }
     await markThreadsBatchPosted(batch.id)
@@ -338,7 +557,7 @@ async function sendThreadsDeletionPrompt(batch: {
     String(batch.chat_id),
     `✅ <b>Threads posts confirmed</b> for @${batch.account.username}.\n\n🗑️ Now delete all <b>${batch.images_count} images</b> from the Drive folder.`,
     batch.thread_id ?? undefined,
-    [[{ text: "🗑 Bilder gelöscht", callback_data: `th:deleted:${batch.id}` }]]
+    [[{ text: "🗑 Images deleted", callback_data: `th:deleted:${batch.id}` }]]
   )
 }
 
@@ -584,7 +803,7 @@ async function handleTaskCallback(cb: {
   const idx       = cb.data.indexOf(":")
   const action    = cb.data.slice(0, idx)   // task_done | task_wip
   const taskId    = cb.data.slice(idx + 1)  // UUID (no colons)
-  const who       = cb.from.first_name ?? "Mitarbeiter"
+  const who       = cb.from.first_name ?? "Employee"
 
   if (!taskId) { await answerCallback(cb.id); return }
 
@@ -598,7 +817,7 @@ async function handleTaskCallback(cb: {
     .maybeSingle()
 
   if (error || !task) {
-    await answerCallback(cb.id, "Task nicht gefunden.")
+    await answerCallback(cb.id, "Task not found.")
     return
   }
 
@@ -606,16 +825,16 @@ async function handleTaskCallback(cb: {
   const baseText = (cb.message.text ?? "").split(sep)[0]
 
   if (newStatus === "erledigt") {
-    const updatedText = baseText + sep + `✅ <b>Erledigt</b> von ${who}`
+    const updatedText = baseText + sep + `✅ <b>Completed</b> by ${who}`
     await editMessage(chatId, messageId, updatedText, [])  // remove buttons
-    await answerCallback(cb.id, "✅ Als erledigt markiert!")
+    await answerCallback(cb.id, "✅ Marked as completed!")
   } else {
-    const updatedText = baseText + sep + `🔄 <b>In Arbeit</b> — ${who}`
+    const updatedText = baseText + sep + `🔄 <b>In progress</b> — ${who}`
     // keep a single ✅ Erledigt button so they can still finish it later
     await editMessage(chatId, messageId, updatedText, [[
-      { text: "✅ Erledigt", callback_data: `task_done:${taskId}` },
+      { text: "✅ Completed", callback_data: `task_done:${taskId}` },
     ]])
-    await answerCallback(cb.id, "🔄 Als 'In Arbeit' markiert")
+    await answerCallback(cb.id, "🔄 Marked as in progress")
   }
 }
 
@@ -676,7 +895,7 @@ async function handleStatusCycle(cb: {
   const label     = newStatus === "banned" ? "Banned" : newStatus === "restricted" ? "Restricted" : "Active"
 
   // Answer immediately — removes the clock icon on the button right away
-  await answerCallback(cb.id, `${icon} ${label} gespeichert`)
+  await answerCallback(cb.id, `${icon} ${label} saved`)
 
   const supabase = createServerClient()
   const now      = new Date().toISOString()

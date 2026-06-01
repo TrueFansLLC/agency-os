@@ -8,6 +8,7 @@ const today = () => new Date().toISOString().slice(0, 10)
 const STATUS_LABEL: Record<ThreadsAccountStatus, string> = {
   warmup: "Warmup",
   active: "Aktiv",
+  restricted: "Eingeschränkt",
   paused: "Pausiert",
   banned: "Gesperrt",
 }
@@ -15,6 +16,7 @@ const STATUS_LABEL: Record<ThreadsAccountStatus, string> = {
 const STATUS_COLOR: Record<ThreadsAccountStatus, string> = {
   warmup: "bg-yellow-900/40 text-yellow-300 border-yellow-700",
   active: "bg-emerald-900/40 text-emerald-300 border-emerald-700",
+  restricted: "bg-orange-900/40 text-orange-300 border-orange-700",
   paused: "bg-gray-800 text-gray-400 border-gray-700",
   banned: "bg-red-900/40 text-red-300 border-red-800",
 }
@@ -132,6 +134,7 @@ function AccountModal({
                 className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-gray-500">
                 <option value="warmup">Warmup</option>
                 <option value="active">Aktiv</option>
+                <option value="restricted">Eingeschränkt</option>
                 <option value="paused">Pausiert</option>
                 <option value="banned">Gesperrt</option>
               </select>

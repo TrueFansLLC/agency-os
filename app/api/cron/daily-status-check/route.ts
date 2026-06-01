@@ -2,9 +2,10 @@ import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage } from "@/lib/telegram"
 import { isCronAuthorized } from "@/lib/supabase/auth-server"
+import { buildThreadsDailyStatusMessage, THREADS_ACCOUNT_STATUS_BUTTONS } from "@/lib/threads-telegram"
 
 const BANGKOK_UTC_OFFSET = 7
-const CHECK_HOUR         = 9  // 09:00 Bangkok = 10:00 Philippines
+const CHECK_HOUR         = 7  // 07:00 Bangkok, before Threads dispatch at 08:00
 
 export async function GET(request: Request) {
   const force      = new URL(request.url).searchParams.get("force") === "true"
@@ -25,7 +26,7 @@ export async function GET(request: Request) {
 
   const { data: employees } = await supabase
     .from("employees")
-    .select("name, telegram_chat_id, telegram_ig_status_thread_id, telegram_fb_status_thread_id")
+    .select("id, name, telegram_chat_id, telegram_ig_status_thread_id, telegram_fb_status_thread_id, telegram_threads_status_thread_id")
     .not("telegram_chat_id", "is", null)
 
   if (!employees || !employees.length) return NextResponse.json({ ok: true, sent: 0 })
@@ -40,13 +41,11 @@ export async function GET(request: Request) {
       .select("ig_username, fb_username, ig_mitarbeiter, fb_mitarbeiter")
       .or(`ig_mitarbeiter.ilike.%${empName}%,fb_mitarbeiter.ilike.%${empName}%`)
 
-    if (!pairs || !pairs.length) continue
-
-    const igAccounts = pairs
+    const igAccounts = (pairs ?? [])
       .filter(p => p.ig_mitarbeiter?.toLowerCase().includes(empName.toLowerCase()) && p.ig_username)
       .map(p => p.ig_username!)
 
-    const fbAccounts = pairs
+    const fbAccounts = (pairs ?? [])
       .filter(p => p.fb_mitarbeiter?.toLowerCase().includes(empName.toLowerCase()) && p.fb_username)
       .map(p => p.fb_username!)
 
@@ -102,6 +101,35 @@ export async function GET(request: Request) {
       }, { onConflict: "employee_name,date,platform" })
 
       sent++
+    }
+
+    // ── Threads status check ────────────────────────────────────
+    if (emp.telegram_threads_status_thread_id) {
+      const { data: threadsAccounts } = await supabase
+        .from("threads_accounts")
+        .select("id, username, creator, branding, status")
+        .eq("employee_id", emp.id)
+        .eq("archived", false)
+        .order("username")
+
+      if (threadsAccounts?.length) {
+        await sendMessage(
+          emp.telegram_chat_id,
+          `📊 <b>Threads Daily Account Status — ${today}</b>\n\nCheck every account before posting. If an account is restricted or banned, report it immediately and do not publish anything.`,
+          emp.telegram_threads_status_thread_id
+        )
+
+        for (const account of threadsAccounts) {
+          await sendMessage(
+            emp.telegram_chat_id,
+            buildThreadsDailyStatusMessage(account),
+            emp.telegram_threads_status_thread_id,
+            THREADS_ACCOUNT_STATUS_BUTTONS(account.id, account.status)
+          )
+        }
+
+        sent++
+      }
     }
   }
 

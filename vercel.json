@@ -9,6 +9,10 @@
       "schedule": "0 1 * * *"
     },
     {
+      "path": "/api/cron/daily-status-check",
+      "schedule": "0 0 * * *"
+    },
+    {
       "path": "/api/cron/dispatch-posts",
       "schedule": "0 13 * * *"
     },
@@ -30,4 +34,3 @@
     }
   ]
 }
-

@@ -14,6 +14,7 @@ function toDisplayDate(d: Date) {
 const STATUS_LABEL: Record<ThreadsAccountStatus, string> = {
   warmup: "Warmup",
   active: "Aktiv",
+  restricted: "Eingeschränkt",
   paused: "Pausiert",
   banned: "Gesperrt",
 }
@@ -21,6 +22,7 @@ const STATUS_LABEL: Record<ThreadsAccountStatus, string> = {
 const STATUS_COLOR: Record<ThreadsAccountStatus, string> = {
   warmup: "bg-yellow-900/40 text-yellow-300 border-yellow-700",
   active: "bg-emerald-900/40 text-emerald-300 border-emerald-700",
+  restricted: "bg-orange-900/40 text-orange-300 border-orange-700",
   paused: "bg-gray-800 text-gray-400 border-gray-700",
   banned: "bg-red-900/40 text-red-300 border-red-800",
 }
@@ -30,6 +32,7 @@ const BATCH_STATUS_LABEL: Record<string, string> = {
   sent:    "Gesendet",
   posted:  "Gepostet",
   deleted: "Erledigt ✓",
+  blocked: "Blockiert",
 }
 
 const BATCH_STATUS_COLOR: Record<string, string> = {
@@ -37,6 +40,7 @@ const BATCH_STATUS_COLOR: Record<string, string> = {
   sent:    "text-yellow-300 bg-yellow-900/30 border-yellow-700",
   posted:  "text-orange-300 bg-orange-900/30 border-orange-700",
   deleted: "text-emerald-300 bg-emerald-900/30 border-emerald-700",
+  blocked: "text-red-300 bg-red-900/30 border-red-700",
 }
 
 const CREATOR_COLOR: Record<string, string> = {
@@ -161,6 +165,7 @@ function AccountModal({
                 className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-gray-500">
                 <option value="warmup">Warmup</option>
                 <option value="active">Aktiv</option>
+                <option value="restricted">Eingeschränkt</option>
                 <option value="paused">Pausiert</option>
                 <option value="banned">Gesperrt</option>
               </select>
@@ -337,10 +342,14 @@ export default function ThreadsPage() {
 
   // ── Stats ──────────────────────────────────────────────────────
   const activeAccounts  = accounts.filter(a => a.status === "active")
+  const restrictedAccounts = accounts.filter(a => a.status === "restricted")
   const warmupAccounts  = accounts.filter(a => a.status === "warmup")
   const todayBatches    = batches.filter(b => b.date === todayStr)
   const pendingToday    = activeAccounts.filter(a => !todayBatches.find(b => b.account_id === a.id))
   const doneToday       = todayBatches.filter(b => b.status === "deleted").length
+  const todayAccounts   = accounts.filter(account =>
+    account.status === "active" || todayBatches.some(batch => batch.account_id === account.id)
+  )
   const employeeById    = new Map(employees.map(employee => [employee.id, employee]))
   const blockedAccounts = activeAccounts.filter(account => !account.employee_id || !employeeById.get(account.employee_id)?.ready)
 
@@ -438,10 +447,11 @@ export default function ThreadsPage() {
       </div>
 
       {/* Stats row */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      <div className="grid grid-cols-5 gap-4 mb-6">
         {[
           { label: "Aktive Accounts",  value: activeAccounts.length,  color: "text-emerald-400" },
           { label: "Im Warmup",        value: warmupAccounts.length,  color: "text-yellow-400"  },
+          { label: "Eingeschränkt",    value: restrictedAccounts.length, color: "text-orange-400" },
           { label: "Heute noch offen", value: pendingToday.length,    color: "text-orange-400"  },
           { label: "Heute erledigt",   value: doneToday,              color: "text-blue-400"    },
         ].map(s => (
@@ -469,7 +479,7 @@ export default function ThreadsPage() {
             className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
               tab === t ? "bg-white text-gray-950" : "text-gray-400 hover:text-white hover:bg-gray-800"
             }`}>
-            {t === "heute" ? `Heute (${todayBatches.length}/${activeAccounts.length})` : "Accounts"}
+            {t === "heute" ? `Heute (${todayBatches.length}/${todayAccounts.length})` : "Accounts"}
           </button>
         ))}
       </div>
@@ -496,13 +506,13 @@ export default function ThreadsPage() {
             </div>
           </div>
 
-          {activeAccounts.length === 0 ? (
+          {todayAccounts.length === 0 ? (
             <div className="border border-dashed border-gray-800 rounded-xl py-16 text-center">
               <p className="text-gray-500 text-sm">Keine aktiven Accounts. Accounts hinzufügen und auf &quot;Aktiv&quot; setzen.</p>
             </div>
           ) : (
             <div className="space-y-3">
-              {activeAccounts.map(account => {
+              {todayAccounts.map(account => {
                 const batch       = todayBatches.find(b => b.account_id === account.id) ?? null
                 const postsToday  = calcPostsPerDay(account.ramp_up_started_at)
                 const times       = getPostingTimes(postsToday)
@@ -577,6 +587,9 @@ export default function ThreadsPage() {
                         </span>
                         <span className={batch.posted_confirmed_at ? "text-emerald-400" : ""}>
                           {batch.posted_confirmed_at ? "✓ Gepostet" : "○ Nicht gepostet"}
+                        </span>
+                        <span className={batch.status_checked_at ? "text-emerald-400" : ""}>
+                          {batch.status_checked_at ? `✓ Status geprüft${batch.blocked_reason ? `: ${batch.blocked_reason}` : ""}` : "○ Statusprüfung ausstehend"}
                         </span>
                         <span className={batch.deletion_confirmed_at ? "text-emerald-400" : ""}>
                           {batch.deletion_confirmed_at ? "✓ Bilder gelöscht" : "○ Bilder ausstehend"}

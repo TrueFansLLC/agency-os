@@ -1,5 +1,5 @@
-export type ThreadsAccountStatus = 'warmup' | 'active' | 'paused' | 'banned'
-export type ThreadsBatchStatus   = 'ready'  | 'sent'   | 'posted' | 'deleted'
+export type ThreadsAccountStatus = 'warmup' | 'active' | 'restricted' | 'paused' | 'banned'
+export type ThreadsBatchStatus   = 'ready'  | 'sent'   | 'posted' | 'deleted' | 'blocked'
 
 export interface ThreadsAccount {
   id:                   string
@@ -31,6 +31,9 @@ export interface ThreadsDailyBatch {
   dispatched_at:          string | null
   posted_confirmed_at:    string | null
   deletion_confirmed_at:  string | null
+  status_checked_at:       string | null
+  blocked_at:              string | null
+  blocked_reason:          string | null
   created_at:             string
   account?:               ThreadsAccount
 }
@@ -40,6 +43,7 @@ export interface ThreadsEmployeeOption {
   name:                     string
   telegram_connected:       boolean
   threads_topic_configured: boolean
+  status_topic_configured:  boolean
   ready:                    boolean
 }
 

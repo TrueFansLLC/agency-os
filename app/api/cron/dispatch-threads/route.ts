@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { sendMessage } from "@/lib/telegram"
-import { getPostingTimes } from "@/types/threads"
+import { buildThreadsStatusCheckMessage, THREADS_STATUS_BUTTONS } from "@/lib/threads-telegram"
 import { isAdminUser, isCronAuthorized } from "@/lib/supabase/auth-server"
 
 type SkipReason = {
@@ -31,7 +31,11 @@ export async function GET(request: Request) {
   for (const batch of batches ?? []) {
     const account = batch.account
     if (!account?.employee_id && !account?.mitarbeiter) {
-      skipped.push({ account: account?.username ?? batch.account_id, reason: "Kein Threads-Mitarbeiter zugewiesen." })
+      skipped.push({ account: account?.username ?? batch.account_id, reason: "No Threads employee assigned." })
+      continue
+    }
+    if (account.status !== "active") {
+      skipped.push({ account: account.username, reason: `Account status is ${account.status}. Posting is paused.` })
       continue
     }
 
@@ -45,42 +49,23 @@ export async function GET(request: Request) {
     const { data: emp } = await employeeQuery.maybeSingle()
 
     if (!emp) {
-      skipped.push({ account: account.username, reason: `Mitarbeiter "${account.mitarbeiter}" ist noch nicht angelegt.` })
+      skipped.push({ account: account.username, reason: `Employee "${account.mitarbeiter}" has not been added yet.` })
       continue
     }
     if (!emp.telegram_chat_id) {
-      skipped.push({ account: account.username, reason: `${emp.name}: Telegram-Gruppe fehlt.` })
+      skipped.push({ account: account.username, reason: `${emp.name}: Telegram group missing.` })
       continue
     }
     if (!Number.isInteger(emp.telegram_threads_thread_id)) {
-      skipped.push({ account: account.username, reason: `${emp.name}: Threads-Topic fehlt.` })
+      skipped.push({ account: account.username, reason: `${emp.name}: Threads topic missing.` })
       continue
     }
 
-    const times   = getPostingTimes(batch.posts_count)
-    const timeStr = times.join(" / ")
-    const label   = `${account.creator}${account.branding ? ` · ${account.branding}` : ""}`
-
-    const lines = [
-      `📱 <b>Threads — @${account.username}</b>`,
-      `📅 Today: <b>${batch.posts_count} Posts</b> (${label})`,
-      `🕘 Times: ${timeStr} (Bangkok)`,
-      `📁 <a href="${batch.drive_folder_url}">Open Google Drive folder</a>`,
-      ``,
-      `——————————————`,
-      `📌 Format: 2 images each as a carousel + caption`,
-      `💡 Caption: copy a viral post from your FYP (1000+ likes in 24h)`,
-      `⚠️ Use each image only <b>once</b> — delete it immediately after posting!`,
-      `——————————————`,
-      ``,
-      `✅ Tap the button once all ${batch.posts_count} posts are done.`,
-    ]
-
     const msgId = await sendMessage(
       emp.telegram_chat_id,
-      lines.join("\n"),
+      buildThreadsStatusCheckMessage(batch),
       emp.telegram_threads_thread_id,
-      [[{ text: "✅ Alle Posts veröffentlicht", callback_data: `th:posted:${batch.id}` }]]
+      THREADS_STATUS_BUTTONS(batch.id)
     )
 
     if (msgId) {
@@ -96,7 +81,7 @@ export async function GET(request: Request) {
         .eq("id", batch.id)
       dispatched++
     } else {
-      skipped.push({ account: account.username, reason: "Telegram-Versand fehlgeschlagen." })
+      skipped.push({ account: account.username, reason: "Telegram delivery failed." })
     }
   }
 
