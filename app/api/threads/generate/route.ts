@@ -7,15 +7,34 @@ export const maxDuration = 60
 
 const TOKEN  = process.env.THREADS_GENERATE_TOKEN ?? ""
 const FAL_KEY = process.env.FAL_KEY ?? ""
-const SEEDREAM_EDIT = "fal-ai/bytedance/seedream/v4.5/edit"
+const BLUEPRINT_BUCKET = "generation-blueprints"
 const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
-const IMAGE_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,/
+const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/
 const GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 const STRICT_IDENTITY_REF_COUNT = 3
 const MAX_RESULT_POLL_ATTEMPTS = 10
 const IMAGE_SIZES = new Set(["square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9", "auto_2K", "auto_4K"])
 const EMPTY_RESULT_ERROR = "fal completed without returning an image."
 const SAFETY_FILTER_ERROR = "fal safety filter blocked this result. Use a less revealing screenshot or add a platform-safe coverage instruction and retry."
+const MODELS = {
+  seedream: "fal-ai/bytedance/seedream/v4.5/edit",
+  nano_banana_pro: "fal-ai/nano-banana-pro/edit",
+} as const
+const EXTENSION: Record<string, string> = {
+  "image/jpeg": "jpg",
+  "image/png": "png",
+  "image/webp": "webp",
+}
+const NANO_ASPECT_RATIO: Record<string, string> = {
+  square_hd: "1:1",
+  square: "1:1",
+  portrait_4_3: "3:4",
+  portrait_16_9: "9:16",
+  landscape_4_3: "4:3",
+  landscape_16_9: "16:9",
+}
+
+type GenerationModel = keyof typeof MODELS
 
 type GenerationRow = Record<string, unknown> & {
   id: string
@@ -24,6 +43,7 @@ type GenerationRow = Record<string, unknown> & {
   fal_response_url?: string | null
   created_at?: string
   result_poll_attempts?: number
+  reference_storage_path?: string | null
 }
 
 async function canGenerate(request: Request) {
@@ -48,13 +68,37 @@ async function withSavedAssets(
   })
 }
 
-function extractErrorMessage(data: Record<string, unknown>) {
-  if (typeof data.detail === "string") return data.detail
-  if (typeof data.error === "string") return data.error
-  if (data.error && typeof data.error === "object" && "message" in data.error) {
-    return String(data.error.message)
+async function toPublicGenerations(
+  supabase: ReturnType<typeof createServerClient>,
+  generations: Record<string, unknown>[]
+) {
+  return withSavedAssets(supabase, generations.map(generation => {
+    const { reference_storage_path: referenceStoragePath, ...publicGeneration } = generation
+    return { ...publicGeneration, can_retry: typeof referenceStoragePath === "string" }
+  }))
+}
+
+function extractErrorValue(value: unknown): string | null {
+  if (typeof value === "string") return value
+  if (Array.isArray(value)) {
+    const parts = value.map(extractErrorValue).filter((part): part is string => Boolean(part))
+    return parts.length ? parts.join(" ") : null
+  }
+  if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>
+    return extractErrorValue(record.message) ?? extractErrorValue(record.detail) ?? extractErrorValue(record.error)
   }
   return null
+}
+
+function extractErrorMessage(data: Record<string, unknown>) {
+  return extractErrorValue(data.detail) ?? extractErrorValue(data.error) ?? extractErrorValue(data.message)
+}
+
+function resultErrorMessage(data: Record<string, unknown>, httpStatus: number) {
+  return extractErrorMessage(data) ?? (httpStatus >= 400
+    ? `fal returned HTTP ${httpStatus} without an image.`
+    : EMPTY_RESULT_ERROR)
 }
 
 function hasSafetyFilteredImage(data: Record<string, unknown>) {
@@ -68,7 +112,7 @@ function getCompletedImageUrl(data: Record<string, unknown>) {
 }
 
 function shouldRetryCompletedResult(response: Response, data: Record<string, unknown>) {
-  if (response.status === 404 || response.status >= 500) return true
+  if ([404, 409, 425, 429].includes(response.status) || response.status >= 500) return true
   return response.ok && !getCompletedImageUrl(data) && !hasSafetyFilteredImage(data) && !extractErrorMessage(data)
 }
 
@@ -76,7 +120,8 @@ async function saveResultRetryState(
   supabase: ReturnType<typeof createServerClient>,
   generation: GenerationRow,
   result: Record<string, unknown>,
-  falQueueStatus: string
+  falQueueStatus: string,
+  httpStatus: number
 ) {
   const resultPollAttempts = (generation.result_poll_attempts ?? 0) + 1
   const attemptsExhausted = resultPollAttempts >= MAX_RESULT_POLL_ATTEMPTS
@@ -84,8 +129,9 @@ async function saveResultRetryState(
     .update({
       status: attemptsExhausted ? "failed" : "generating",
       fal_queue_status: falQueueStatus,
-      error_message: attemptsExhausted ? extractErrorMessage(result) ?? EMPTY_RESULT_ERROR : null,
+      error_message: attemptsExhausted ? resultErrorMessage(result, httpStatus) : null,
       result_poll_attempts: resultPollAttempts,
+      fal_result_http_status: httpStatus,
       updated_at: new Date().toISOString(),
     })
     .eq("id", generation.id)
@@ -95,7 +141,8 @@ async function saveCompletedResult(
   supabase: ReturnType<typeof createServerClient>,
   generation: GenerationRow,
   result: Record<string, unknown>,
-  falQueueStatus: string
+  falQueueStatus: string,
+  httpStatus: number
 ) {
   const safetyFiltered = hasSafetyFilteredImage(result)
   const imageUrl = safetyFiltered ? null : getCompletedImageUrl(result)
@@ -104,8 +151,9 @@ async function saveCompletedResult(
       image_url: imageUrl,
       status: imageUrl ? "pending" : "failed",
       fal_queue_status: falQueueStatus,
-      error_message: imageUrl ? null : safetyFiltered ? SAFETY_FILTER_ERROR : extractErrorMessage(result) ?? EMPTY_RESULT_ERROR,
+      error_message: imageUrl ? null : safetyFiltered ? SAFETY_FILTER_ERROR : resultErrorMessage(result, httpStatus),
       result_poll_attempts: generation.result_poll_attempts ?? 0,
+      fal_result_http_status: httpStatus,
       updated_at: new Date().toISOString(),
     })
     .eq("id", generation.id)
@@ -127,7 +175,7 @@ async function pollGeneratingRows(
       try {
         const resultResponse = await fetch(generation.fal_response_url as string, { headers })
         const result = await resultResponse.json().catch(() => ({} as Record<string, unknown>))
-        await saveCompletedResult(supabase, generation, result, "COMPLETED")
+        await saveCompletedResult(supabase, generation, result, "COMPLETED", resultResponse.status)
       } catch {
         // Keep the original error if fal cannot be reached while enriching an old failure.
       }
@@ -149,10 +197,10 @@ async function pollGeneratingRows(
         const resultResponse = await fetch(generation.fal_response_url, { headers })
         const result = await resultResponse.json().catch(() => ({} as Record<string, unknown>))
         if (shouldRetryCompletedResult(resultResponse, result)) {
-          await saveResultRetryState(supabase, generation, result, falQueueStatus)
+          await saveResultRetryState(supabase, generation, result, falQueueStatus, resultResponse.status)
           return
         }
-        await saveCompletedResult(supabase, generation, result, falQueueStatus)
+        await saveCompletedResult(supabase, generation, result, falQueueStatus, resultResponse.status)
         return
       }
 
@@ -192,14 +240,165 @@ async function pollGeneratingRows(
   }))
 }
 
+function parseGenerationModel(value: unknown): GenerationModel {
+  return typeof value === "string" && value in MODELS
+    ? value as GenerationModel
+    : "seedream"
+}
+
+function buildFalPayload(
+  generationModel: GenerationModel,
+  prompt: string,
+  imageUrls: string[],
+  imageSize: string
+) {
+  if (generationModel === "nano_banana_pro") {
+    return {
+      prompt,
+      image_urls: imageUrls,
+      aspect_ratio: NANO_ASPECT_RATIO[imageSize] ?? "auto",
+      num_images: 1,
+      output_format: "png",
+      resolution: "1K",
+      limit_generations: true,
+    }
+  }
+
+  return {
+    prompt,
+    image_urls: imageUrls,
+    image_size: imageSize,
+    num_images: 1,
+    enable_safety_checker: true,
+  }
+}
+
+async function createBlueprintSignedUrl(
+  supabase: ReturnType<typeof createServerClient>,
+  storagePath: string
+) {
+  const { data, error } = await supabase.storage.from(BLUEPRINT_BUCKET).createSignedUrl(storagePath, 60 * 60)
+  if (error || !data?.signedUrl) throw new Error(error?.message ?? "blueprint signed URL could not be created")
+  return data.signedUrl
+}
+
+async function storeBlueprint(
+  supabase: ReturnType<typeof createServerClient>,
+  creator: string,
+  batchId: string,
+  referenceImage: string
+) {
+  const match = referenceImage.match(IMAGE_DATA_URL)
+  if (!match) throw new Error("reference image must be a compressed JPEG, PNG or WebP under 2.5 MB")
+
+  const contentType = match[1]
+  const extension = EXTENSION[contentType]
+  const image = Buffer.from(match[2], "base64")
+  if (!extension || image.byteLength > MAX_REFERENCE_IMAGE_LENGTH) {
+    throw new Error("reference image must be a compressed JPEG, PNG or WebP under 2.5 MB")
+  }
+
+  const month = new Date().toISOString().slice(0, 7)
+  const storagePath = `${creator.toLowerCase()}/${month}/${batchId}.${extension}`
+  const { error } = await supabase.storage.from(BLUEPRINT_BUCKET).upload(storagePath, image, {
+    contentType,
+    upsert: false,
+  })
+  if (error) throw new Error(error.message)
+  return { storagePath, signedUrl: await createBlueprintSignedUrl(supabase, storagePath) }
+}
+
+async function submitPrompts(
+  supabase: ReturnType<typeof createServerClient>,
+  input: {
+    creator: string
+    prompts: string[]
+    sourceLabel: string | null
+    imageSize: string
+    generationModel: GenerationModel
+    referenceStoragePath?: string | null
+    referenceUrl?: string | null
+    retryOfId?: string | null
+  }
+) {
+  const refs = creatorRefUrls(input.creator).slice(input.referenceUrl ? -STRICT_IDENTITY_REF_COUNT : -10)
+  if (!refs.length) throw new Error(`no reference images for creator '${input.creator}'`)
+
+  // Strict recreation relies on explicit Figure roles: blueprint first, identity-only anchors after it.
+  const imageUrls = input.referenceUrl ? [input.referenceUrl, ...refs] : refs
+  const batchId = crypto.randomUUID()
+  const headers = { Authorization: `Key ${FAL_KEY}`, "Content-Type": "application/json" }
+  const rows: Record<string, unknown>[] = []
+
+  for (const prompt of input.prompts) {
+    const response = await fetch(`https://queue.fal.run/${MODELS[input.generationModel]}`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify(buildFalPayload(input.generationModel, prompt, imageUrls, input.imageSize)),
+    })
+    const data = await response.json().catch(() => ({} as Record<string, unknown>))
+    rows.push({
+      batch_id: batchId,
+      creator: input.creator,
+      source_label: input.sourceLabel,
+      prompt,
+      status: data.request_id ? "generating" : "failed",
+      fal_status_url: data.status_url ?? null,
+      fal_response_url: data.response_url ?? null,
+      error_message: data.request_id ? null : extractErrorMessage(data) ?? "fal rejected this generation request.",
+      reference_storage_path: input.referenceStoragePath ?? null,
+      image_size: input.imageSize,
+      generation_model: input.generationModel,
+      retry_of_id: input.retryOfId ?? null,
+    })
+  }
+
+  const { error } = await supabase.from("threads_generations").insert(rows)
+  if (error) throw new Error(error.message)
+  return { batch_id: batchId, submitted: rows.length }
+}
+
 // ── Generate variants for a creator (one per prompt) ──────────────
 export async function POST(request: Request) {
   if (!await canGenerate(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
   if (!FAL_KEY) return NextResponse.json({ error: "FAL_KEY missing" }, { status: 500 })
 
-  const body        = await request.json().catch(() => ({} as Record<string, unknown>))
-  const creator     = typeof body.creator === "string" ? body.creator.trim() : ""
-  const prompts     = Array.isArray(body.prompts)
+  const body = await request.json().catch(() => ({} as Record<string, unknown>))
+  const retryGenerationId = typeof body.retry_generation_id === "string" ? body.retry_generation_id : ""
+  const generationModel = parseGenerationModel(body.generation_model)
+  const supabase = createServerClient()
+
+  if (retryGenerationId) {
+    const { data: retryGeneration, error } = await supabase
+      .from("threads_generations")
+      .select("id,creator,source_label,prompt,reference_storage_path,image_size,generation_model")
+      .eq("id", retryGenerationId)
+      .maybeSingle()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!retryGeneration?.reference_storage_path) {
+      return NextResponse.json({ error: "This older generation has no saved blueprint. Upload its screenshot again." }, { status: 400 })
+    }
+
+    try {
+      return NextResponse.json(await submitPrompts(supabase, {
+        creator: retryGeneration.creator,
+        prompts: [retryGeneration.prompt],
+        sourceLabel: retryGeneration.source_label,
+        imageSize: retryGeneration.image_size ?? "portrait_4_3",
+        generationModel: typeof body.generation_model === "string"
+          ? generationModel
+          : parseGenerationModel(retryGeneration.generation_model),
+        referenceStoragePath: retryGeneration.reference_storage_path,
+        referenceUrl: await createBlueprintSignedUrl(supabase, retryGeneration.reference_storage_path),
+        retryOfId: retryGeneration.id,
+      }))
+    } catch (retryError) {
+      return NextResponse.json({ error: retryError instanceof Error ? retryError.message : "Retry could not be started." }, { status: 500 })
+    }
+  }
+
+  const creator = typeof body.creator === "string" ? body.creator.trim() : ""
+  const prompts = Array.isArray(body.prompts)
     ? body.prompts.filter((prompt: unknown): prompt is string => typeof prompt === "string").map((prompt: string) => prompt.trim()).filter(Boolean)
     : []
   const sourceLabel = typeof body.source_label === "string" ? body.source_label.trim() || null : null
@@ -209,41 +408,25 @@ export async function POST(request: Request) {
     : "portrait_4_3"
   if (!creator || !prompts.length) return NextResponse.json({ error: "creator + prompts[] required" }, { status: 400 })
   if (prompts.length > 10) return NextResponse.json({ error: "maximum 10 variants per batch" }, { status: 400 })
-  if (referenceImage && (!IMAGE_DATA_URL.test(referenceImage) || referenceImage.length > MAX_REFERENCE_IMAGE_LENGTH)) {
+  if (referenceImage && (!IMAGE_DATA_URL.test(referenceImage) || referenceImage.length > MAX_REFERENCE_IMAGE_LENGTH * 1.5)) {
     return NextResponse.json({ error: "reference image must be a compressed JPEG, PNG or WebP under 2.5 MB" }, { status: 400 })
   }
 
-  const refs = creatorRefUrls(creator).slice(referenceImage ? -STRICT_IDENTITY_REF_COUNT : -10)
-  if (!refs.length) return NextResponse.json({ error: `no reference images for creator '${creator}'` }, { status: 400 })
-  // Strict recreation relies on explicit Figure roles: blueprint first, identity-only anchors after it.
-  const imageUrls = referenceImage ? [referenceImage, ...refs] : refs
-
-  const supabase = createServerClient()
-  const batchId  = crypto.randomUUID()
-  const headers  = { Authorization: `Key ${FAL_KEY}`, "Content-Type": "application/json" }
-
-  const rows: Record<string, unknown>[] = []
-  for (const prompt of prompts) {
-    const r = await fetch(`https://queue.fal.run/${SEEDREAM_EDIT}`, {
-      method: "POST", headers,
-      body: JSON.stringify({ prompt, image_urls: imageUrls, image_size: requestedImageSize, num_images: 1, enable_safety_checker: true }),
-    })
-    const d = await r.json().catch(() => ({}))
-    rows.push({
-      batch_id:         batchId,
+  try {
+    const batchId = crypto.randomUUID()
+    const blueprint = referenceImage ? await storeBlueprint(supabase, creator, batchId, referenceImage) : null
+    return NextResponse.json(await submitPrompts(supabase, {
       creator,
-      source_label:     sourceLabel,
-      prompt,
-      status:           d.request_id ? "generating" : "failed",
-      fal_status_url:   d.status_url ?? null,
-      fal_response_url: d.response_url ?? null,
-      error_message:    d.request_id ? null : extractErrorMessage(d) ?? "fal rejected this generation request.",
-    })
+      prompts,
+      sourceLabel,
+      imageSize: requestedImageSize,
+      generationModel,
+      referenceStoragePath: blueprint?.storagePath,
+      referenceUrl: blueprint?.signedUrl,
+    }))
+  } catch (generationError) {
+    return NextResponse.json({ error: generationError instanceof Error ? generationError.message : "Generation could not be started." }, { status: 500 })
   }
-
-  const { error } = await supabase.from("threads_generations").insert(rows)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ batch_id: batchId, submitted: rows.length })
 }
 
 // ── Poll a batch: update finished generations, return current state ─
@@ -261,16 +444,16 @@ export async function GET(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     await pollGeneratingRows(supabase, (recent ?? []) as GenerationRow[])
     const { data } = await supabase.from("threads_generations")
-      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message")
+      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path")
       .order("created_at", { ascending: false })
       .limit(40)
-    return NextResponse.json({ generations: await withSavedAssets(supabase, data ?? []) })
+    return NextResponse.json({ generations: await toPublicGenerations(supabase, data ?? []) })
   }
 
   const { data: gens } = await supabase.from("threads_generations").select("*").eq("batch_id", batchId)
   await pollGeneratingRows(supabase, (gens ?? []) as GenerationRow[])
 
   const { data: updated } = await supabase.from("threads_generations")
-    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message").eq("batch_id", batchId).order("created_at")
-  return NextResponse.json({ batch_id: batchId, generations: await withSavedAssets(supabase, updated ?? []) })
+    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path").eq("batch_id", batchId).order("created_at")
+  return NextResponse.json({ batch_id: batchId, generations: await toPublicGenerations(supabase, updated ?? []) })
 }

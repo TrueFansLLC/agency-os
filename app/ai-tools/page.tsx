@@ -17,6 +17,8 @@ type Generation = {
   asset_status: string | null
   fal_queue_status: string | null
   error_message: string | null
+  generation_model: "seedream" | "nano_banana_pro"
+  can_retry: boolean
 }
 
 type ReferenceImage = {
@@ -37,9 +39,13 @@ const STATUS_STYLE: Record<string, string> = {
 
 function statusLabel(status: string) {
   if (status === "generating") return "Generating"
-  if (status === "pending") return "Ready"
+  if (status === "pending") return "Generated"
   if (status === "failed") return "Failed"
   return status
+}
+
+function generationModelLabel(model: Generation["generation_model"]) {
+  return model === "nano_banana_pro" ? "Nano Banana Pro Quality" : "Seedream 4.5 Fast"
 }
 
 function buildRecreatePrompt(creator: string, extraInstructions: string) {
@@ -98,6 +104,7 @@ async function compressReferenceImage(file: File) {
 export default function AIToolsPage() {
   const [mode, setMode] = useState<"prompt" | "reference">("prompt")
   const [creator, setCreator] = useState("Cathy")
+  const [generationModel, setGenerationModel] = useState<Generation["generation_model"]>("seedream")
   const [label, setLabel] = useState("")
   const [prompt, setPrompt] = useState("")
   const [referenceImages, setReferenceImages] = useState<ReferenceImage[]>([])
@@ -112,6 +119,7 @@ export default function AIToolsPage() {
   const [submissionProgress, setSubmissionProgress] = useState("")
   const [savingAssetIds, setSavingAssetIds] = useState<string[]>([])
   const [selectedGenerationIds, setSelectedGenerationIds] = useState<string[]>([])
+  const [retryingGenerationIds, setRetryingGenerationIds] = useState<string[]>([])
 
   const loadRecent = useCallback(async () => {
     setLoadingRecent(true)
@@ -173,9 +181,7 @@ export default function AIToolsPage() {
     setActive([])
     setSubmissionProgress("")
 
-    const jobs = mode === "reference"
-      ? referenceImages.flatMap(referenceImage => Array.from({ length: variants }, () => referenceImage))
-      : [null]
+    const jobs = mode === "reference" ? referenceImages : [null]
     const submittedBatchIds: string[] = []
 
     for (const [index, referenceImage] of jobs.entries()) {
@@ -188,9 +194,10 @@ export default function AIToolsPage() {
           source_label: [label.trim(), referenceImage?.name].filter(Boolean).join(" · "),
           prompts: mode === "prompt"
             ? Array.from({ length: variants }, () => cleanPrompt)
-            : [buildRecreatePrompt(creator, cleanPrompt)],
+            : Array.from({ length: variants }, () => buildRecreatePrompt(creator, cleanPrompt)),
           reference_image_data_url: referenceImage?.dataUrl,
           image_size: referenceImage?.imageSize,
+          generation_model: generationModel,
         }),
       })
       const data = await response.json().catch(() => ({}))
@@ -204,6 +211,27 @@ export default function AIToolsPage() {
     setSubmitting(false)
     setSubmissionProgress("")
     setBatchIds(submittedBatchIds)
+  }
+
+  async function handleRetry(generation: Generation, retryModel: Generation["generation_model"]) {
+    setRetryingGenerationIds(current => [...current, generation.id])
+    setError("")
+    const response = await fetch("/api/threads/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        retry_generation_id: generation.id,
+        generation_model: retryModel,
+      }),
+    })
+    const data = await response.json().catch(() => ({}))
+    setRetryingGenerationIds(current => current.filter(id => id !== generation.id))
+    if (!response.ok) {
+      setError(data.error ?? "The generation could not be retried.")
+      return
+    }
+    setActive([])
+    setBatchIds([data.batch_id])
   }
 
   async function handleReferenceImage(event: ChangeEvent<HTMLInputElement>) {
@@ -273,7 +301,7 @@ export default function AIToolsPage() {
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-semibold text-white">AI Image Generator</h1>
             <span className="text-xs px-2.5 py-1 rounded-full border border-violet-700 bg-violet-900/30 text-violet-300">
-              Seedream 4.5
+              {generationModelLabel(generationModel)}
             </span>
           </div>
           <Link href="/content-bank" className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs">
@@ -306,6 +334,20 @@ export default function AIToolsPage() {
                 className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500">
                 {CREATORS.map(option => <option key={option}>{option}</option>)}
               </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Generation mode</label>
+              <select value={generationModel} onChange={event => setGenerationModel(event.target.value as Generation["generation_model"])}
+                className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm focus:outline-none focus:border-violet-500">
+                <option value="seedream">Seedream 4.5 Fast</option>
+                <option value="nano_banana_pro">Nano Banana Pro Quality</option>
+              </select>
+              <p className="text-xs text-gray-500 mt-1.5">
+                {generationModel === "nano_banana_pro"
+                  ? "Use Quality mode for important recreations. It is slower and more expensive."
+                  : "Use Fast mode for inexpensive testing and larger batches."}
+              </p>
             </div>
 
             <div>
@@ -441,6 +483,7 @@ export default function AIToolsPage() {
                         {statusLabel(generation.status)}
                       </span>
                     </div>
+                    <p className="text-[11px] text-gray-500 mt-1">{generationModelLabel(generation.generation_model)}</p>
                     {generation.source_label && <p className="text-xs text-violet-300 mt-1 truncate">{generation.source_label}</p>}
                     {generation.status === "generating" && (
                       <p className="text-xs text-amber-300 mt-2">
@@ -452,7 +495,25 @@ export default function AIToolsPage() {
                       </p>
                     )}
                     {generation.status === "failed" && (
-                      <p className="text-xs text-red-300 mt-2">{generation.error_message ?? "Generation failed. Upload the screenshot again and retry."}</p>
+                      <>
+                        <p className="text-xs text-red-300 mt-2">{generation.error_message ?? "Generation failed. Upload the screenshot again and retry."}</p>
+                        {generation.can_retry && (
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            <button type="button" onClick={() => void handleRetry(generation, generation.generation_model)}
+                              disabled={retryingGenerationIds.includes(generation.id) || Boolean(batchIds.length)}
+                              className="rounded-md border border-gray-700 px-2.5 py-1.5 text-xs text-gray-300 hover:border-gray-500 hover:text-white disabled:opacity-50">
+                              {retryingGenerationIds.includes(generation.id) ? "Retrying..." : "Retry same mode"}
+                            </button>
+                            {generation.generation_model !== "nano_banana_pro" && (
+                              <button type="button" onClick={() => void handleRetry(generation, "nano_banana_pro")}
+                                disabled={retryingGenerationIds.includes(generation.id) || Boolean(batchIds.length)}
+                                className="rounded-md border border-violet-700 bg-violet-900/30 px-2.5 py-1.5 text-xs text-violet-300 hover:border-violet-500 hover:text-violet-200 disabled:opacity-50">
+                                Retry with Quality
+                              </button>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )}
                     <p className="text-xs text-gray-500 mt-2 line-clamp-3">{generation.prompt}</p>
                     {generation.image_url && (
