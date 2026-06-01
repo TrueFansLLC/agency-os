@@ -15,6 +15,24 @@ async function canGenerate(request: Request) {
   return isTokenAuthorized(request, TOKEN) || await isAdminUser()
 }
 
+async function withSavedAssets(
+  supabase: ReturnType<typeof createServerClient>,
+  generations: Record<string, unknown>[]
+) {
+  const ids = generations.map(generation => generation.id).filter((id): id is string => typeof id === "string")
+  if (!ids.length) return generations
+
+  const { data: assets } = await supabase
+    .from("content_assets")
+    .select("id,generation_id,status")
+    .in("generation_id", ids)
+  const saved = new Map((assets ?? []).map(asset => [asset.generation_id, asset]))
+  return generations.map(generation => {
+    const asset = saved.get(generation.id as string)
+    return { ...generation, saved_asset_id: asset?.id ?? null, asset_status: asset?.status ?? null }
+  })
+}
+
 // ── Generate variants for a creator (one per prompt) ──────────────
 export async function POST(request: Request) {
   if (!await canGenerate(request)) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
@@ -78,7 +96,7 @@ export async function GET(request: Request) {
       .order("created_at", { ascending: false })
       .limit(40)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-    return NextResponse.json({ generations: data ?? [] })
+    return NextResponse.json({ generations: await withSavedAssets(supabase, data ?? []) })
   }
 
   const { data: gens } = await supabase.from("threads_generations").select("*").eq("batch_id", batchId)
@@ -100,5 +118,5 @@ export async function GET(request: Request) {
 
   const { data: updated } = await supabase.from("threads_generations")
     .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at").eq("batch_id", batchId).order("created_at")
-  return NextResponse.json({ batch_id: batchId, generations: updated ?? [] })
+  return NextResponse.json({ batch_id: batchId, generations: await withSavedAssets(supabase, updated ?? []) })
 }
