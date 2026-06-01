@@ -28,6 +28,19 @@ export default function TeamPage() {
   const [invite, setInvite]     = useState({ name: "", email: "", allowed_pages: ["posting-planer"] })
   const [inviting, setInviting] = useState(false)
   const [inviteMsg, setInviteMsg] = useState("")
+  const [copied, setCopied]     = useState(false)
+
+  const registerUrl = typeof window !== "undefined" ? `${window.location.origin}/register` : "/register"
+
+  async function copyRegisterLink() {
+    try {
+      await navigator.clipboard.writeText(registerUrl)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // clipboard blocked — leave the link visible for manual copy
+    }
+  }
 
   async function load() {
     setLoading(true)
@@ -105,6 +118,23 @@ export default function TeamPage() {
             className="px-4 py-2 bg-white text-gray-900 text-sm font-medium rounded-lg hover:bg-gray-100 transition-colors">
             + Mitarbeiter einladen
           </button>
+        </div>
+
+        {/* Registrierungs-Link — einfach an neue Mitarbeiter schicken */}
+        <div className="mb-6 border border-gray-800 rounded-xl bg-gray-800/20 px-5 py-4">
+          <p className="text-sm font-medium text-white">Registrierungs-Link</p>
+          <p className="text-xs text-gray-400 mt-0.5 mb-3">
+            Diesen Link an neue Mitarbeiter schicken. Sie geben E-Mail + Passwort ein und sind sofort drin — keine E-Mail-Einladung nötig.
+          </p>
+          <div className="flex items-center gap-2">
+            <input readOnly value={registerUrl}
+              onFocus={e => e.target.select()}
+              className="flex-1 bg-gray-950 border border-gray-700 text-gray-300 text-sm rounded-lg px-3 py-2 focus:outline-none focus:border-gray-500 font-mono"/>
+            <button onClick={copyRegisterLink}
+              className="px-4 py-2 bg-white text-gray-900 text-sm font-medium rounded-lg hover:bg-gray-100 transition-colors whitespace-nowrap">
+              {copied ? "✓ Kopiert" : "Link kopieren"}
+            </button>
+          </div>
         </div>
 
         {/* Table */}
