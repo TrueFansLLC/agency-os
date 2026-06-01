@@ -19,6 +19,9 @@ type Generation = {
   error_message: string | null
   generation_model: "seedream" | "nano_banana_pro"
   can_retry: boolean
+  qa_status: "pending" | "passed" | "review_required" | "failed" | "skipped"
+  qa_score: number | null
+  qa_summary: string | null
 }
 
 type ReferenceImage = {
@@ -46,6 +49,20 @@ function statusLabel(status: string) {
 
 function generationModelLabel(model: Generation["generation_model"]) {
   return model === "nano_banana_pro" ? "Nano Banana Pro Quality" : "Seedream 4.5 Fast"
+}
+
+function qualityLabel(status: Generation["qa_status"]) {
+  if (status === "passed") return "QA passed"
+  if (status === "review_required") return "Review required"
+  if (status === "pending") return "Checking fidelity..."
+  if (status === "failed") return "Manual review"
+  return null
+}
+
+function qualityStyle(status: Generation["qa_status"]) {
+  if (status === "passed") return "border-emerald-700 bg-emerald-900/30 text-emerald-300"
+  if (status === "review_required") return "border-amber-700 bg-amber-900/30 text-amber-300"
+  return "border-gray-700 bg-gray-800 text-gray-300"
 }
 
 function buildRecreatePrompt(creator: string, extraInstructions: string) {
@@ -484,6 +501,17 @@ export default function AIToolsPage() {
                       </span>
                     </div>
                     <p className="text-[11px] text-gray-500 mt-1">{generationModelLabel(generation.generation_model)}</p>
+                    {generation.image_url && qualityLabel(generation.qa_status) && (
+                      <div className="mt-2">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] ${qualityStyle(generation.qa_status)}`}>
+                            {qualityLabel(generation.qa_status)}
+                          </span>
+                          {typeof generation.qa_score === "number" && <span className="text-[11px] text-gray-500">{generation.qa_score}/100</span>}
+                        </div>
+                        {generation.qa_summary && <p className="mt-1.5 text-xs text-gray-500">{generation.qa_summary}</p>}
+                      </div>
+                    )}
                     {generation.source_label && <p className="text-xs text-violet-300 mt-1 truncate">{generation.source_label}</p>}
                     {generation.status === "generating" && (
                       <p className="text-xs text-amber-300 mt-2">

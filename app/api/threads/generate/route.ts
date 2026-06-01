@@ -7,6 +7,8 @@ export const maxDuration = 60
 
 const TOKEN  = process.env.THREADS_GENERATE_TOKEN ?? ""
 const FAL_KEY = process.env.FAL_KEY ?? ""
+const ANTHROPIC_KEY = process.env.ANTHROPIC_API_KEY ?? ""
+const QA_MODEL = "claude-sonnet-4-6"
 const BLUEPRINT_BUCKET = "generation-blueprints"
 const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
 const IMAGE_DATA_URL = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/
@@ -39,11 +41,20 @@ type GenerationModel = keyof typeof MODELS
 type GenerationRow = Record<string, unknown> & {
   id: string
   status: string
+  creator?: string
   fal_status_url?: string | null
   fal_response_url?: string | null
   created_at?: string
   result_poll_attempts?: number
   reference_storage_path?: string | null
+}
+
+type QualityScores = {
+  composition: number
+  crop: number
+  pose: number
+  wardrobe: number
+  background: number
 }
 
 async function canGenerate(request: Request) {
@@ -99,6 +110,28 @@ function resultErrorMessage(data: Record<string, unknown>, httpStatus: number) {
   return extractErrorMessage(data) ?? (httpStatus >= 400
     ? `fal returned HTTP ${httpStatus} without an image.`
     : EMPTY_RESULT_ERROR)
+}
+
+function parseScore(value: unknown) {
+  return Math.max(0, Math.min(100, Math.round(typeof value === "number" ? value : Number(value) || 0)))
+}
+
+function parseQualityScores(value: unknown): QualityScores {
+  const scores = value && typeof value === "object" ? value as Record<string, unknown> : {}
+  return {
+    composition: parseScore(scores.composition),
+    crop: parseScore(scores.crop),
+    pose: parseScore(scores.pose),
+    wardrobe: parseScore(scores.wardrobe),
+    background: parseScore(scores.background),
+  }
+}
+
+function extractJsonObject(text: string) {
+  const start = text.indexOf("{")
+  const end = text.lastIndexOf("}")
+  if (start === -1 || end <= start) throw new Error("QA model did not return JSON")
+  return JSON.parse(text.slice(start, end + 1)) as Record<string, unknown>
 }
 
 function hasSafetyFilteredImage(data: Record<string, unknown>) {
@@ -157,6 +190,22 @@ async function saveCompletedResult(
       updated_at: new Date().toISOString(),
     })
     .eq("id", generation.id)
+  if (imageUrl) {
+    try {
+      const qualityReview = await reviewBlueprintFidelity(supabase, generation, imageUrl)
+      await supabase.from("threads_generations")
+        .update({ ...qualityReview, updated_at: new Date().toISOString() })
+        .eq("id", generation.id)
+    } catch (qualityError) {
+      await supabase.from("threads_generations")
+        .update({
+          qa_status: "failed",
+          qa_summary: qualityError instanceof Error ? qualityError.message.slice(0, 300) : "Automated QA could not run.",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", generation.id)
+    }
+  }
 }
 
 async function pollGeneratingRows(
@@ -284,6 +333,78 @@ async function createBlueprintDataUrl(
   return `data:${contentType};base64,${Buffer.from(await data.arrayBuffer()).toString("base64")}`
 }
 
+async function reviewBlueprintFidelity(
+  supabase: ReturnType<typeof createServerClient>,
+  generation: GenerationRow,
+  imageUrl: string
+) {
+  if (!ANTHROPIC_KEY || !generation.reference_storage_path) {
+    return { qa_status: "skipped", qa_score: null, qa_summary: null, qa_details: null }
+  }
+
+  const blueprint = await createBlueprintDataUrl(supabase, generation.reference_storage_path)
+  const match = blueprint.match(IMAGE_DATA_URL)
+  if (!match) throw new Error("saved blueprint could not be prepared for QA")
+
+  const response = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "x-api-key": ANTHROPIC_KEY,
+      "anthropic-version": "2023-06-01",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: QA_MODEL,
+      max_tokens: 500,
+      messages: [{
+        role: "user",
+        content: [
+          { type: "image", source: { type: "base64", media_type: match[1], data: match[2] } },
+          { type: "image", source: { type: "url", url: imageUrl } },
+          {
+            type: "text",
+            text: [
+              "IMAGE 1 is the source blueprint. IMAGE 2 is a generated recreation.",
+              "Evaluate only visual recreation fidelity. Do not identify or compare the people.",
+              "Score each category from 0 to 100:",
+              "- composition: camera placement, angle, lens distance and overall layout",
+              "- crop: framing and which parts of the scene remain inside the image",
+              "- pose: body position and selfie posture",
+              "- wardrobe: garment type, color, cut, sleeves, neckline, fit and coverage boundaries",
+              "- background: setting, objects and lighting",
+              'Return JSON only: {"scores":{"composition":0,"crop":0,"pose":0,"wardrobe":0,"background":0},"summary":"one short English sentence","notes":["up to three short English discrepancies"]}',
+            ].join("\n"),
+          },
+        ],
+      }],
+    }),
+  })
+  const data = await response.json().catch(() => ({} as Record<string, unknown>))
+  if (!response.ok) throw new Error(extractErrorMessage(data) ?? `QA returned HTTP ${response.status}`)
+  const text = Array.isArray(data.content)
+    ? data.content.map((block: unknown) => block && typeof block === "object" && "text" in block ? String(block.text) : "").join("\n")
+    : ""
+  const result = extractJsonObject(text)
+  const scores = parseQualityScores(result.scores)
+  const qaScore = Math.round(
+    scores.composition * 0.2
+    + scores.crop * 0.25
+    + scores.pose * 0.15
+    + scores.wardrobe * 0.3
+    + scores.background * 0.1
+  )
+  const requiresReview = qaScore < 85 || scores.wardrobe < 85 || scores.crop < 80 || scores.pose < 75
+  return {
+    qa_status: requiresReview ? "review_required" : "passed",
+    qa_score: qaScore,
+    qa_summary: typeof result.summary === "string" ? result.summary.slice(0, 300) : null,
+    qa_details: {
+      scores,
+      notes: Array.isArray(result.notes) ? result.notes.slice(0, 3).map(note => String(note).slice(0, 200)) : [],
+    },
+  }
+}
+
 async function storeBlueprint(
   supabase: ReturnType<typeof createServerClient>,
   creator: string,
@@ -352,6 +473,7 @@ async function submitPrompts(
       image_size: input.imageSize,
       generation_model: input.generationModel,
       retry_of_id: input.retryOfId ?? null,
+      qa_status: input.referenceStoragePath ? "pending" : "skipped",
     })
   }
 
@@ -446,7 +568,7 @@ export async function GET(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     await pollGeneratingRows(supabase, (recent ?? []) as GenerationRow[])
     const { data } = await supabase.from("threads_generations")
-      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path")
+      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details")
       .order("created_at", { ascending: false })
       .limit(40)
     return NextResponse.json({ generations: await toPublicGenerations(supabase, data ?? []) })
@@ -456,6 +578,6 @@ export async function GET(request: Request) {
   await pollGeneratingRows(supabase, (gens ?? []) as GenerationRow[])
 
   const { data: updated } = await supabase.from("threads_generations")
-    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path").eq("batch_id", batchId).order("created_at")
+    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message,generation_model,fal_result_http_status,reference_storage_path,qa_status,qa_score,qa_summary,qa_details").eq("batch_id", batchId).order("created_at")
   return NextResponse.json({ batch_id: batchId, generations: await toPublicGenerations(supabase, updated ?? []) })
 }
