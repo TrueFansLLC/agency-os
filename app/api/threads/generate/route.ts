@@ -10,6 +10,15 @@ const FAL_KEY = process.env.FAL_KEY ?? ""
 const SEEDREAM_EDIT = "fal-ai/bytedance/seedream/v4.5/edit"
 const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
 const IMAGE_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,/
+const GENERATION_TIMEOUT_MS = 15 * 60 * 1000
+
+type GenerationRow = Record<string, unknown> & {
+  id: string
+  status: string
+  fal_status_url?: string | null
+  fal_response_url?: string | null
+  created_at?: string
+}
 
 async function canGenerate(request: Request) {
   return isTokenAuthorized(request, TOKEN) || await isAdminUser()
@@ -31,6 +40,87 @@ async function withSavedAssets(
     const asset = saved.get(generation.id as string)
     return { ...generation, saved_asset_id: asset?.id ?? null, asset_status: asset?.status ?? null }
   })
+}
+
+function extractErrorMessage(data: Record<string, unknown>) {
+  if (typeof data.detail === "string") return data.detail
+  if (typeof data.error === "string") return data.error
+  if (data.error && typeof data.error === "object" && "message" in data.error) {
+    return String(data.error.message)
+  }
+  return null
+}
+
+async function pollGeneratingRows(
+  supabase: ReturnType<typeof createServerClient>,
+  rows: GenerationRow[]
+) {
+  const headers = { Authorization: `Key ${FAL_KEY}` }
+  await Promise.all(rows.map(async generation => {
+    if (generation.status !== "generating") return
+    if (!generation.fal_status_url) {
+      await supabase.from("threads_generations")
+        .update({ status: "failed", error_message: "Missing queue status URL.", updated_at: new Date().toISOString() })
+        .eq("id", generation.id)
+      return
+    }
+
+    try {
+      const statusResponse = await fetch(generation.fal_status_url, { headers })
+      const queueStatus = await statusResponse.json().catch(() => ({} as Record<string, unknown>))
+      const falQueueStatus = typeof queueStatus.status === "string" ? queueStatus.status : null
+      if (falQueueStatus === "COMPLETED" && generation.fal_response_url) {
+        const resultResponse = await fetch(generation.fal_response_url, { headers })
+        const result = await resultResponse.json().catch(() => ({} as Record<string, unknown>))
+        const imageUrl = Array.isArray(result.images) && typeof result.images[0]?.url === "string"
+          ? result.images[0].url
+          : null
+        await supabase.from("threads_generations")
+          .update({
+            image_url: imageUrl,
+            status: imageUrl ? "pending" : "failed",
+            fal_queue_status: falQueueStatus,
+            error_message: imageUrl ? null : extractErrorMessage(result) ?? "fal completed without returning an image.",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", generation.id)
+        return
+      }
+
+      if (falQueueStatus === "FAILED" || !statusResponse.ok) {
+        await supabase.from("threads_generations")
+          .update({
+            status: "failed",
+            fal_queue_status: falQueueStatus,
+            error_message: extractErrorMessage(queueStatus) ?? "fal could not generate this image.",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", generation.id)
+        return
+      }
+
+      const timedOut = generation.created_at
+        ? Date.now() - new Date(generation.created_at).getTime() > GENERATION_TIMEOUT_MS
+        : false
+      await supabase.from("threads_generations")
+        .update({
+          status: timedOut ? "failed" : "generating",
+          fal_queue_status: falQueueStatus,
+          error_message: timedOut ? "Generation timed out after 15 minutes. Please generate it again." : null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", generation.id)
+    } catch {
+      const timedOut = generation.created_at
+        ? Date.now() - new Date(generation.created_at).getTime() > GENERATION_TIMEOUT_MS
+        : false
+      if (timedOut) {
+        await supabase.from("threads_generations")
+          .update({ status: "failed", error_message: "Generation timed out while checking fal. Please generate it again.", updated_at: new Date().toISOString() })
+          .eq("id", generation.id)
+      }
+    }
+  }))
 }
 
 // ── Generate variants for a creator (one per prompt) ──────────────
@@ -74,6 +164,7 @@ export async function POST(request: Request) {
       status:           d.request_id ? "generating" : "failed",
       fal_status_url:   d.status_url ?? null,
       fal_response_url: d.response_url ?? null,
+      error_message:    d.request_id ? null : extractErrorMessage(d) ?? "fal rejected this generation request.",
     })
   }
 
@@ -89,34 +180,24 @@ export async function GET(request: Request) {
   const batchId = url.searchParams.get("batch_id")
 
   const supabase = createServerClient()
-  const headers  = { Authorization: `Key ${FAL_KEY}` }
   if (!batchId) {
-    const { data, error } = await supabase.from("threads_generations")
-      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at")
+    const { data: recent, error } = await supabase.from("threads_generations")
+      .select("*")
       .order("created_at", { ascending: false })
       .limit(40)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await pollGeneratingRows(supabase, (recent ?? []) as GenerationRow[])
+    const { data } = await supabase.from("threads_generations")
+      .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message")
+      .order("created_at", { ascending: false })
+      .limit(40)
     return NextResponse.json({ generations: await withSavedAssets(supabase, data ?? []) })
   }
 
   const { data: gens } = await supabase.from("threads_generations").select("*").eq("batch_id", batchId)
-  for (const g of gens ?? []) {
-    if (g.status !== "generating" || !g.fal_status_url) continue
-    const st = await (await fetch(g.fal_status_url, { headers })).json().catch(() => ({}))
-    if (st.status === "COMPLETED" && g.fal_response_url) {
-      const rd       = await (await fetch(g.fal_response_url, { headers })).json().catch(() => ({}))
-      const imageUrl = rd.images?.[0]?.url ?? null
-      await supabase.from("threads_generations")
-        .update({ image_url: imageUrl, status: imageUrl ? "pending" : "failed", updated_at: new Date().toISOString() })
-        .eq("id", g.id)
-    } else if (st.status === "FAILED") {
-      await supabase.from("threads_generations")
-        .update({ status: "failed", updated_at: new Date().toISOString() })
-        .eq("id", g.id)
-    }
-  }
+  await pollGeneratingRows(supabase, (gens ?? []) as GenerationRow[])
 
   const { data: updated } = await supabase.from("threads_generations")
-    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at").eq("batch_id", batchId).order("created_at")
+    .select("id,batch_id,creator,prompt,image_url,status,source_label,created_at,fal_queue_status,error_message").eq("batch_id", batchId).order("created_at")
   return NextResponse.json({ batch_id: batchId, generations: await withSavedAssets(supabase, updated ?? []) })
 }

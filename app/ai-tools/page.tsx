@@ -15,6 +15,8 @@ type Generation = {
   created_at: string
   saved_asset_id: string | null
   asset_status: string | null
+  fal_queue_status: string | null
+  error_message: string | null
 }
 
 type ReferenceImage = {
@@ -131,6 +133,12 @@ export default function AIToolsPage() {
     const timer = window.setInterval(() => void pollBatches(batchIds), 3000)
     return () => window.clearInterval(timer)
   }, [batchIds, pollBatches])
+
+  useEffect(() => {
+    if (batchIds.length || !recent.some(generation => generation.status === "generating")) return
+    const timer = window.setInterval(() => void loadRecent(), 5000)
+    return () => window.clearInterval(timer)
+  }, [batchIds.length, loadRecent, recent])
 
   async function handleGenerate() {
     const cleanPrompt = prompt.trim()
@@ -410,6 +418,14 @@ export default function AIToolsPage() {
                       </span>
                     </div>
                     {generation.source_label && <p className="text-xs text-violet-300 mt-1 truncate">{generation.source_label}</p>}
+                    {generation.status === "generating" && (
+                      <p className="text-xs text-amber-300 mt-2">
+                        {generation.fal_queue_status === "IN_PROGRESS" ? "Seedream is rendering..." : "Waiting in the fal queue..."}
+                      </p>
+                    )}
+                    {generation.status === "failed" && (
+                      <p className="text-xs text-red-300 mt-2">{generation.error_message ?? "Generation failed. Upload the screenshot again and retry."}</p>
+                    )}
                     <p className="text-xs text-gray-500 mt-2 line-clamp-3">{generation.prompt}</p>
                     {generation.image_url && (
                       <div className="flex flex-wrap items-center gap-3 mt-3">
