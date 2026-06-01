@@ -1,6 +1,7 @@
 "use client"
 
 import Image from "next/image"
+import Link from "next/link"
 import { type ChangeEvent, useCallback, useEffect, useState } from "react"
 
 type Generation = {
@@ -222,11 +223,16 @@ export default function AIToolsPage() {
   return (
     <div className="p-8 max-w-7xl mx-auto">
       <div className="mb-8">
-        <div className="flex flex-wrap items-center gap-3">
-          <h1 className="text-2xl font-semibold text-white">AI Image Generator</h1>
-          <span className="text-xs px-2.5 py-1 rounded-full border border-violet-700 bg-violet-900/30 text-violet-300">
-            Seedream 4.5
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <h1 className="text-2xl font-semibold text-white">AI Image Generator</h1>
+            <span className="text-xs px-2.5 py-1 rounded-full border border-violet-700 bg-violet-900/30 text-violet-300">
+              Seedream 4.5
+            </span>
+          </div>
+          <Link href="/content-bank" className="px-3 py-2 rounded-lg border border-gray-700 text-gray-300 hover:text-white hover:border-gray-500 text-xs">
+            Open content bank
+          </Link>
         </div>
         <p className="text-gray-400 mt-1 text-sm">Create a new scene from a prompt or recreate a screenshot with your selected creator.</p>
       </div>

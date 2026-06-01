@@ -1,13 +1,47 @@
-import { NextResponse } from "next/server"
+import { NextResponse, type NextRequest } from "next/server"
 import { createServerClient } from "@/lib/supabase/server"
 import { requireAdminUser } from "@/lib/supabase/auth-server"
 
 const BUCKET = "content-assets"
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024
+const ASSET_STATUSES = ["saved", "ready", "assigned", "used", "archived"]
 const EXTENSION: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/png": "png",
   "image/webp": "webp",
+}
+
+async function withSignedUrls(
+  supabase: ReturnType<typeof createServerClient>,
+  assets: Record<string, unknown>[]
+) {
+  const paths = assets.map(asset => asset.storage_path).filter((path): path is string => typeof path === "string")
+  if (!paths.length) return assets
+
+  const { data } = await supabase.storage.from(BUCKET).createSignedUrls(paths, 60 * 60)
+  const signedUrls = new Map((data ?? []).map(item => [item.path, item.signedUrl]))
+  return assets.map(asset => ({ ...asset, signed_preview_url: signedUrls.get(asset.storage_path as string) ?? null }))
+}
+
+export async function GET(request: NextRequest) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
+  const { searchParams } = new URL(request.url)
+  const creator = searchParams.get("creator")
+  const status = searchParams.get("status")
+  const supabase = createServerClient()
+  let query = supabase
+    .from("content_assets")
+    .select("id,generation_id,creator,source,status,storage_path,source_url,source_label,prompt,used_at,created_at,updated_at,pack_assets:content_pack_assets(pack_id)")
+    .order("created_at", { ascending: false })
+
+  if (creator && creator !== "all") query = query.eq("creator", creator)
+  if (status && status !== "all") query = query.eq("status", status)
+
+  const { data, error } = await query
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ assets: await withSignedUrls(supabase, data ?? []) })
 }
 
 export async function POST(request: Request) {
@@ -74,4 +108,29 @@ export async function POST(request: Request) {
   }
 
   return NextResponse.json(asset, { status: 201 })
+}
+
+export async function PATCH(request: Request) {
+  const auth = await requireAdminUser()
+  if (auth.response) return auth.response
+
+  const body = await request.json().catch(() => ({} as Record<string, unknown>))
+  const ids = Array.isArray(body.ids)
+    ? body.ids.filter((id: unknown): id is string => typeof id === "string")
+    : []
+  const status = typeof body.status === "string" ? body.status : ""
+  if (!ids.length || !ASSET_STATUSES.includes(status)) {
+    return NextResponse.json({ error: "ids[] and a valid status are required" }, { status: 400 })
+  }
+
+  const supabase = createServerClient()
+  const updates: Record<string, unknown> = {
+    status,
+    updated_at: new Date().toISOString(),
+  }
+  if (status === "used") updates.used_at = new Date().toISOString()
+
+  const { error } = await supabase.from("content_assets").update(updates).in("id", ids)
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true, updated: ids.length })
 }
