@@ -13,6 +13,8 @@ const IMAGE_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,/
 const GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 const STRICT_IDENTITY_REF_COUNT = 3
 const IMAGE_SIZES = new Set(["square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9", "auto_2K", "auto_4K"])
+const EMPTY_RESULT_ERROR = "fal completed without returning an image."
+const SAFETY_FILTER_ERROR = "fal safety filter blocked this result. Use a less revealing screenshot or add a platform-safe coverage instruction and retry."
 
 type GenerationRow = Record<string, unknown> & {
   id: string
@@ -53,13 +55,54 @@ function extractErrorMessage(data: Record<string, unknown>) {
   return null
 }
 
+function hasSafetyFilteredImage(data: Record<string, unknown>) {
+  return Array.isArray(data.has_nsfw_concepts) && data.has_nsfw_concepts.some(value => value === true)
+}
+
+async function saveCompletedResult(
+  supabase: ReturnType<typeof createServerClient>,
+  generation: GenerationRow,
+  result: Record<string, unknown>,
+  falQueueStatus: string
+) {
+  const safetyFiltered = hasSafetyFilteredImage(result)
+  const imageUrl = !safetyFiltered && Array.isArray(result.images) && typeof result.images[0]?.url === "string"
+    ? result.images[0].url
+    : null
+  await supabase.from("threads_generations")
+    .update({
+      image_url: imageUrl,
+      status: imageUrl ? "pending" : "failed",
+      fal_queue_status: falQueueStatus,
+      error_message: imageUrl ? null : safetyFiltered ? SAFETY_FILTER_ERROR : extractErrorMessage(result) ?? EMPTY_RESULT_ERROR,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", generation.id)
+}
+
 async function pollGeneratingRows(
   supabase: ReturnType<typeof createServerClient>,
   rows: GenerationRow[]
 ) {
   const headers = { Authorization: `Key ${FAL_KEY}` }
   await Promise.all(rows.map(async generation => {
-    if (generation.status !== "generating") return
+    const refreshEmptyFailure = generation.status === "failed"
+      && generation.fal_queue_status === "COMPLETED"
+      && generation.error_message === EMPTY_RESULT_ERROR
+      && generation.fal_response_url
+    if (generation.status !== "generating" && !refreshEmptyFailure) return
+
+    if (refreshEmptyFailure) {
+      try {
+        const resultResponse = await fetch(generation.fal_response_url as string, { headers })
+        const result = await resultResponse.json().catch(() => ({} as Record<string, unknown>))
+        await saveCompletedResult(supabase, generation, result, "COMPLETED")
+      } catch {
+        // Keep the original error if fal cannot be reached while enriching an old failure.
+      }
+      return
+    }
+
     if (!generation.fal_status_url) {
       await supabase.from("threads_generations")
         .update({ status: "failed", error_message: "Missing queue status URL.", updated_at: new Date().toISOString() })
@@ -74,18 +117,7 @@ async function pollGeneratingRows(
       if (falQueueStatus === "COMPLETED" && generation.fal_response_url) {
         const resultResponse = await fetch(generation.fal_response_url, { headers })
         const result = await resultResponse.json().catch(() => ({} as Record<string, unknown>))
-        const imageUrl = Array.isArray(result.images) && typeof result.images[0]?.url === "string"
-          ? result.images[0].url
-          : null
-        await supabase.from("threads_generations")
-          .update({
-            image_url: imageUrl,
-            status: imageUrl ? "pending" : "failed",
-            fal_queue_status: falQueueStatus,
-            error_message: imageUrl ? null : extractErrorMessage(result) ?? "fal completed without returning an image.",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", generation.id)
+        await saveCompletedResult(supabase, generation, result, falQueueStatus)
         return
       }
 
