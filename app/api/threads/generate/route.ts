@@ -12,6 +12,7 @@ const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
 const IMAGE_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,/
 const GENERATION_TIMEOUT_MS = 15 * 60 * 1000
 const STRICT_IDENTITY_REF_COUNT = 3
+const MAX_RESULT_POLL_ATTEMPTS = 10
 const IMAGE_SIZES = new Set(["square_hd", "square", "portrait_4_3", "portrait_16_9", "landscape_4_3", "landscape_16_9", "auto_2K", "auto_4K"])
 const EMPTY_RESULT_ERROR = "fal completed without returning an image."
 const SAFETY_FILTER_ERROR = "fal safety filter blocked this result. Use a less revealing screenshot or add a platform-safe coverage instruction and retry."
@@ -22,6 +23,7 @@ type GenerationRow = Record<string, unknown> & {
   fal_status_url?: string | null
   fal_response_url?: string | null
   created_at?: string
+  result_poll_attempts?: number
 }
 
 async function canGenerate(request: Request) {
@@ -59,6 +61,36 @@ function hasSafetyFilteredImage(data: Record<string, unknown>) {
   return Array.isArray(data.has_nsfw_concepts) && data.has_nsfw_concepts.some(value => value === true)
 }
 
+function getCompletedImageUrl(data: Record<string, unknown>) {
+  return Array.isArray(data.images) && typeof data.images[0]?.url === "string"
+    ? data.images[0].url
+    : null
+}
+
+function shouldRetryCompletedResult(response: Response, data: Record<string, unknown>) {
+  if (response.status === 404 || response.status >= 500) return true
+  return response.ok && !getCompletedImageUrl(data) && !hasSafetyFilteredImage(data) && !extractErrorMessage(data)
+}
+
+async function saveResultRetryState(
+  supabase: ReturnType<typeof createServerClient>,
+  generation: GenerationRow,
+  result: Record<string, unknown>,
+  falQueueStatus: string
+) {
+  const resultPollAttempts = (generation.result_poll_attempts ?? 0) + 1
+  const attemptsExhausted = resultPollAttempts >= MAX_RESULT_POLL_ATTEMPTS
+  await supabase.from("threads_generations")
+    .update({
+      status: attemptsExhausted ? "failed" : "generating",
+      fal_queue_status: falQueueStatus,
+      error_message: attemptsExhausted ? extractErrorMessage(result) ?? EMPTY_RESULT_ERROR : null,
+      result_poll_attempts: resultPollAttempts,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", generation.id)
+}
+
 async function saveCompletedResult(
   supabase: ReturnType<typeof createServerClient>,
   generation: GenerationRow,
@@ -66,15 +98,14 @@ async function saveCompletedResult(
   falQueueStatus: string
 ) {
   const safetyFiltered = hasSafetyFilteredImage(result)
-  const imageUrl = !safetyFiltered && Array.isArray(result.images) && typeof result.images[0]?.url === "string"
-    ? result.images[0].url
-    : null
+  const imageUrl = safetyFiltered ? null : getCompletedImageUrl(result)
   await supabase.from("threads_generations")
     .update({
       image_url: imageUrl,
       status: imageUrl ? "pending" : "failed",
       fal_queue_status: falQueueStatus,
       error_message: imageUrl ? null : safetyFiltered ? SAFETY_FILTER_ERROR : extractErrorMessage(result) ?? EMPTY_RESULT_ERROR,
+      result_poll_attempts: generation.result_poll_attempts ?? 0,
       updated_at: new Date().toISOString(),
     })
     .eq("id", generation.id)
@@ -117,6 +148,10 @@ async function pollGeneratingRows(
       if (falQueueStatus === "COMPLETED" && generation.fal_response_url) {
         const resultResponse = await fetch(generation.fal_response_url, { headers })
         const result = await resultResponse.json().catch(() => ({} as Record<string, unknown>))
+        if (shouldRetryCompletedResult(resultResponse, result)) {
+          await saveResultRetryState(supabase, generation, result, falQueueStatus)
+          return
+        }
         await saveCompletedResult(supabase, generation, result, falQueueStatus)
         return
       }

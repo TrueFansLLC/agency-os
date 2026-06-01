@@ -444,7 +444,11 @@ export default function AIToolsPage() {
                     {generation.source_label && <p className="text-xs text-violet-300 mt-1 truncate">{generation.source_label}</p>}
                     {generation.status === "generating" && (
                       <p className="text-xs text-amber-300 mt-2">
-                        {generation.fal_queue_status === "IN_PROGRESS" ? "Seedream is rendering..." : "Waiting in the fal queue..."}
+                        {generation.fal_queue_status === "COMPLETED"
+                          ? "Finalizing image result..."
+                          : generation.fal_queue_status === "IN_PROGRESS"
+                            ? "Seedream is rendering..."
+                            : "Waiting in the fal queue..."}
                       </p>
                     )}
                     {generation.status === "failed" && (
