@@ -169,6 +169,11 @@ export default async function DashboardPage() {
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <ActionLink
+              href="/operations"
+              title="Daily Operations"
+              detail="Live-Übersicht für Alerts, Content-Vorrat und AI-Produktion."
+            />
+            <ActionLink
               href="/posting-planer"
               title="Posting Planer"
               detail={`${readyPosts} Posts stehen für den Versand bereit.`}
