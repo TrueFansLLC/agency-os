@@ -1,7 +1,7 @@
 "use client"
 
 import Image from "next/image"
-import { useCallback, useEffect, useState } from "react"
+import { type ChangeEvent, useCallback, useEffect, useState } from "react"
 
 type Generation = {
   id: string
@@ -15,6 +15,8 @@ type Generation = {
 }
 
 const CREATORS = ["Cathy", "Neyla", "Romina"]
+const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
+const RECREATE_PROMPT = "Use the final input image as the visual scene reference. Recreate it as a new realistic smartphone photo featuring the same selected creator identity shown in the preceding identity reference images. Preserve the final reference image's pose, camera angle, crop, setting, lighting, outfit category and overall mood as closely as possible. Do not blend identities or retain the original person's facial features."
 const STATUS_STYLE: Record<string, string> = {
   generating: "border-amber-700 bg-amber-900/30 text-amber-300",
   pending: "border-emerald-700 bg-emerald-900/30 text-emerald-300",
@@ -28,10 +30,42 @@ function statusLabel(status: string) {
   return status
 }
 
+async function compressReferenceImage(file: File) {
+  if (!["image/jpeg", "image/png", "image/webp"].includes(file.type)) {
+    throw new Error("Please upload a JPEG, PNG or WebP screenshot.")
+  }
+
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    const image = document.createElement("img")
+    await new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve()
+      image.onerror = () => reject(new Error("The screenshot could not be read."))
+      image.src = objectUrl
+    })
+
+    const scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight))
+    const canvas = document.createElement("canvas")
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    canvas.getContext("2d")?.drawImage(image, 0, 0, canvas.width, canvas.height)
+
+    const dataUrl = canvas.toDataURL("image/jpeg", 0.86)
+    if (dataUrl.length > MAX_REFERENCE_IMAGE_LENGTH) {
+      throw new Error("The screenshot is still too large after compression. Please crop it and upload it again.")
+    }
+    return dataUrl
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
+
 export default function AIToolsPage() {
+  const [mode, setMode] = useState<"prompt" | "reference">("prompt")
   const [creator, setCreator] = useState("Cathy")
   const [label, setLabel] = useState("")
   const [prompt, setPrompt] = useState("")
+  const [referenceImage, setReferenceImage] = useState("")
   const [variants, setVariants] = useState(2)
   const [batchId, setBatchId] = useState<string | null>(null)
   const [active, setActive] = useState<Generation[]>([])
@@ -39,6 +73,7 @@ export default function AIToolsPage() {
   const [error, setError] = useState("")
   const [loadingRecent, setLoadingRecent] = useState(true)
   const [submitting, setSubmitting] = useState(false)
+  const [processingImage, setProcessingImage] = useState(false)
 
   const loadRecent = useCallback(async () => {
     setLoadingRecent(true)
@@ -82,7 +117,11 @@ export default function AIToolsPage() {
 
   async function handleGenerate() {
     const cleanPrompt = prompt.trim()
-    if (!cleanPrompt) return
+    if (mode === "prompt" && !cleanPrompt) return
+    if (mode === "reference" && !referenceImage) return
+    const effectivePrompt = mode === "reference"
+      ? `${RECREATE_PROMPT}${cleanPrompt ? ` Additional instructions: ${cleanPrompt}` : ""}`
+      : cleanPrompt
 
     setSubmitting(true)
     setError("")
@@ -93,7 +132,8 @@ export default function AIToolsPage() {
       body: JSON.stringify({
         creator,
         source_label: label,
-        prompts: Array.from({ length: variants }, () => cleanPrompt),
+        prompts: Array.from({ length: variants }, () => effectivePrompt),
+        reference_image_data_url: mode === "reference" ? referenceImage : undefined,
       }),
     })
     const data = await response.json().catch(() => ({}))
@@ -105,7 +145,25 @@ export default function AIToolsPage() {
     setBatchId(data.batch_id)
   }
 
+  async function handleReferenceImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0]
+    event.target.value = ""
+    if (!file) return
+
+    setProcessingImage(true)
+    setError("")
+    try {
+      setReferenceImage(await compressReferenceImage(file))
+    } catch (uploadError) {
+      setReferenceImage("")
+      setError(uploadError instanceof Error ? uploadError.message : "The screenshot could not be processed.")
+    } finally {
+      setProcessingImage(false)
+    }
+  }
+
   const visible = active.length ? active : recent
+  const canGenerate = mode === "prompt" ? Boolean(prompt.trim()) : Boolean(referenceImage)
 
   return (
     <div className="p-8 max-w-7xl mx-auto">
@@ -116,12 +174,26 @@ export default function AIToolsPage() {
             Seedream 4.5
           </span>
         </div>
-        <p className="text-gray-400 mt-1 text-sm">Create Threads images with the saved creator references. Start with one scene and generate a few variants.</p>
+        <p className="text-gray-400 mt-1 text-sm">Create a new scene from a prompt or recreate a screenshot with your selected creator.</p>
       </div>
 
       <div className="grid lg:grid-cols-[380px_1fr] gap-6">
         <section className="bg-gray-900 border border-gray-800 rounded-xl p-5 h-fit">
           <div className="space-y-4">
+            <div>
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Input mode</label>
+              <div className="grid grid-cols-2 gap-2">
+                <button type="button" onClick={() => setMode("prompt")}
+                  className={`px-3 py-2.5 rounded-lg border text-sm transition-colors ${mode === "prompt" ? "border-violet-500 bg-violet-900/30 text-white" : "border-gray-700 bg-gray-950 text-gray-400 hover:text-white"}`}>
+                  Write prompt
+                </button>
+                <button type="button" onClick={() => setMode("reference")}
+                  className={`px-3 py-2.5 rounded-lg border text-sm transition-colors ${mode === "reference" ? "border-violet-500 bg-violet-900/30 text-white" : "border-gray-700 bg-gray-950 text-gray-400 hover:text-white"}`}>
+                  Use screenshot
+                </button>
+              </div>
+            </div>
+
             <div>
               <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Creator</label>
               <select value={creator} onChange={event => setCreator(event.target.value)}
@@ -137,12 +209,37 @@ export default function AIToolsPage() {
                 className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-violet-500"/>
             </div>
 
+            {mode === "reference" && (
+              <div>
+                <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Reference screenshot</label>
+                {referenceImage ? (
+                  <div className="relative overflow-hidden rounded-lg border border-gray-700 bg-gray-950">
+                    <div className="relative aspect-[4/5]">
+                      <Image src={referenceImage} alt="Reference screenshot" fill unoptimized className="object-contain"/>
+                    </div>
+                    <button type="button" onClick={() => setReferenceImage("")}
+                      className="absolute right-2 top-2 rounded-md border border-gray-700 bg-gray-950/90 px-2 py-1 text-xs text-gray-300 hover:text-white">
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <label className="block cursor-pointer rounded-lg border border-dashed border-gray-700 bg-gray-950 px-4 py-6 text-center hover:border-violet-500">
+                    <span className="block text-sm text-gray-300">{processingImage ? "Preparing screenshot..." : "Upload screenshot"}</span>
+                    <span className="block text-xs text-gray-600 mt-1">JPEG, PNG or WebP</span>
+                    <input type="file" accept="image/jpeg,image/png,image/webp" onChange={event => void handleReferenceImage(event)}
+                      disabled={processingImage} className="hidden"/>
+                  </label>
+                )}
+                <p className="text-xs text-gray-500 mt-1.5">Seedream uses this image for composition, pose, outfit and mood. The creator references remain attached automatically.</p>
+              </div>
+            )}
+
             <div>
-              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">Prompt</label>
-              <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={10}
-                placeholder="Describe one image: setting, outfit, pose, framing, lighting and phone-camera style."
+              <label className="block text-xs font-medium text-gray-500 uppercase tracking-wider mb-1.5">{mode === "reference" ? "Extra instructions (optional)" : "Prompt"}</label>
+              <textarea value={prompt} onChange={event => setPrompt(event.target.value)} rows={mode === "reference" ? 4 : 10}
+                placeholder={mode === "reference" ? "Optional: describe anything you want to change." : "Describe one image: setting, outfit, pose, framing, lighting and phone-camera style."}
                 className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2.5 text-white text-sm placeholder-gray-600 focus:outline-none focus:border-violet-500 resize-y"/>
-              <p className="text-xs text-gray-500 mt-1.5">Creator identity references are attached automatically.</p>
+              {mode === "prompt" && <p className="text-xs text-gray-500 mt-1.5">Creator identity references are attached automatically.</p>}
             </div>
 
             <div>
@@ -155,7 +252,7 @@ export default function AIToolsPage() {
 
             {error && <p className="text-sm text-red-300 border border-red-900 bg-red-950/40 rounded-lg px-3 py-2">{error}</p>}
 
-            <button onClick={() => void handleGenerate()} disabled={submitting || Boolean(batchId) || !prompt.trim()}
+            <button onClick={() => void handleGenerate()} disabled={submitting || processingImage || Boolean(batchId) || !canGenerate}
               className="w-full px-4 py-3 rounded-lg bg-violet-600 hover:bg-violet-500 text-white text-sm font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
               {submitting ? "Starting..." : batchId ? "Generating..." : `Generate ${variants} ${variants === 1 ? "image" : "images"}`}
             </button>

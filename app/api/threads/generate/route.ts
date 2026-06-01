@@ -8,6 +8,8 @@ export const maxDuration = 60
 const TOKEN  = process.env.THREADS_GENERATE_TOKEN ?? ""
 const FAL_KEY = process.env.FAL_KEY ?? ""
 const SEEDREAM_EDIT = "fal-ai/bytedance/seedream/v4.5/edit"
+const MAX_REFERENCE_IMAGE_LENGTH = 2_500_000
+const IMAGE_DATA_URL = /^data:image\/(?:jpeg|png|webp);base64,/
 
 async function canGenerate(request: Request) {
   return isTokenAuthorized(request, TOKEN) || await isAdminUser()
@@ -24,11 +26,16 @@ export async function POST(request: Request) {
     ? body.prompts.filter((prompt: unknown): prompt is string => typeof prompt === "string").map((prompt: string) => prompt.trim()).filter(Boolean)
     : []
   const sourceLabel = typeof body.source_label === "string" ? body.source_label.trim() || null : null
+  const referenceImage = typeof body.reference_image_data_url === "string" ? body.reference_image_data_url : null
   if (!creator || !prompts.length) return NextResponse.json({ error: "creator + prompts[] required" }, { status: 400 })
   if (prompts.length > 10) return NextResponse.json({ error: "maximum 10 variants per batch" }, { status: 400 })
+  if (referenceImage && (!IMAGE_DATA_URL.test(referenceImage) || referenceImage.length > MAX_REFERENCE_IMAGE_LENGTH)) {
+    return NextResponse.json({ error: "reference image must be a compressed JPEG, PNG or WebP under 2.5 MB" }, { status: 400 })
+  }
 
-  const refs = creatorRefUrls(creator).slice(-10)
+  const refs = creatorRefUrls(creator).slice(referenceImage ? -9 : -10)
   if (!refs.length) return NextResponse.json({ error: `no reference images for creator '${creator}'` }, { status: 400 })
+  const imageUrls = referenceImage ? [...refs, referenceImage] : refs
 
   const supabase = createServerClient()
   const batchId  = crypto.randomUUID()
@@ -38,7 +45,7 @@ export async function POST(request: Request) {
   for (const prompt of prompts) {
     const r = await fetch(`https://queue.fal.run/${SEEDREAM_EDIT}`, {
       method: "POST", headers,
-      body: JSON.stringify({ prompt, image_urls: refs, image_size: "portrait_4_3", num_images: 1 }),
+      body: JSON.stringify({ prompt, image_urls: imageUrls, image_size: "portrait_4_3", num_images: 1, enable_safety_checker: true }),
     })
     const d = await r.json().catch(() => ({}))
     rows.push({
