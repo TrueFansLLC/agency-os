@@ -273,13 +273,15 @@ function buildFalPayload(
   }
 }
 
-async function createBlueprintSignedUrl(
+async function createBlueprintDataUrl(
   supabase: ReturnType<typeof createServerClient>,
   storagePath: string
 ) {
-  const { data, error } = await supabase.storage.from(BLUEPRINT_BUCKET).createSignedUrl(storagePath, 60 * 60)
-  if (error || !data?.signedUrl) throw new Error(error?.message ?? "blueprint signed URL could not be created")
-  return data.signedUrl
+  const { data, error } = await supabase.storage.from(BLUEPRINT_BUCKET).download(storagePath)
+  if (error || !data) throw new Error(error?.message ?? "blueprint could not be downloaded")
+  if (data.size > MAX_REFERENCE_IMAGE_LENGTH) throw new Error("saved blueprint exceeds the 2.5 MB limit")
+  const contentType = data.type || "image/jpeg"
+  return `data:${contentType};base64,${Buffer.from(await data.arrayBuffer()).toString("base64")}`
 }
 
 async function storeBlueprint(
@@ -305,7 +307,7 @@ async function storeBlueprint(
     upsert: false,
   })
   if (error) throw new Error(error.message)
-  return { storagePath, signedUrl: await createBlueprintSignedUrl(supabase, storagePath) }
+  return storagePath
 }
 
 async function submitPrompts(
@@ -389,7 +391,7 @@ export async function POST(request: Request) {
           ? generationModel
           : parseGenerationModel(retryGeneration.generation_model),
         referenceStoragePath: retryGeneration.reference_storage_path,
-        referenceUrl: await createBlueprintSignedUrl(supabase, retryGeneration.reference_storage_path),
+        referenceUrl: await createBlueprintDataUrl(supabase, retryGeneration.reference_storage_path),
         retryOfId: retryGeneration.id,
       }))
     } catch (retryError) {
@@ -414,15 +416,15 @@ export async function POST(request: Request) {
 
   try {
     const batchId = crypto.randomUUID()
-    const blueprint = referenceImage ? await storeBlueprint(supabase, creator, batchId, referenceImage) : null
+    const blueprintStoragePath = referenceImage ? await storeBlueprint(supabase, creator, batchId, referenceImage) : null
     return NextResponse.json(await submitPrompts(supabase, {
       creator,
       prompts,
       sourceLabel,
       imageSize: requestedImageSize,
       generationModel,
-      referenceStoragePath: blueprint?.storagePath,
-      referenceUrl: blueprint?.signedUrl,
+      referenceStoragePath: blueprintStoragePath,
+      referenceUrl: referenceImage,
     }))
   } catch (generationError) {
     return NextResponse.json({ error: generationError instanceof Error ? generationError.message : "Generation could not be started." }, { status: 500 })
